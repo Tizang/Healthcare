@@ -107,6 +107,7 @@ def draw_overlay(
     fps: float,
     paused: bool,
     face_detected: bool,
+    deadzone: float = 0.18,
 ):
     h, w = frame.shape[:2]
 
@@ -132,19 +133,33 @@ def draw_overlay(
         txt(f"Arm   LR:{speed_lr:+4d}  UD:{speed_ud:+4d}  IO:{speed_io:+4d}", 10, 70, WHITE, 0.55)
         txt(f"Direction: {direction}", 10, 95, GREEN, 0.6, 2)
 
-    # Gaze crosshair (bottom-right quadrant)
+    # Gaze crosshair + deadzone visualisation (bottom-right)
+    cx, cy = w - 85, h - 85
+    r = 65
+    cv2.circle(frame, (cx, cy), r, GRAY, 1)
+    cv2.line(frame, (cx - r, cy), (cx + r, cy), GRAY, 1)
+    cv2.line(frame, (cx, cy - r), (cx, cy + r), GRAY, 1)
+
+    # Deadzone circle (filled, semi-transparent red)
+    dz_r = int(deadzone * r)
+    dz_overlay = frame.copy()
+    cv2.circle(dz_overlay, (cx, cy), dz_r, (0, 50, 180), -1)
+    cv2.addWeighted(dz_overlay, 0.25, frame, 0.75, 0, frame)
+    cv2.circle(frame, (cx, cy), dz_r, (0, 80, 255), 1)
+    txt(f"DZ {int(deadzone*100)}%", cx - dz_r - 28, cy - dz_r + 5, (0, 120, 255), 0.38)
+
     if gaze_x is not None and gaze_y is not None:
-        cx, cy = w - 80, h - 80
-        r = 60
-        cv2.circle(frame, (cx, cy), r, GRAY, 1)
-        cv2.line(frame, (cx - r, cy), (cx + r, cy), GRAY, 1)
-        cv2.line(frame, (cx, cy - r), (cx, cy + r), GRAY, 1)
         gx_px = int(cx + np.clip(gaze_x, -1, 1) * r)
         gy_px = int(cy + np.clip(gaze_y, -1, 1) * r)
-        cv2.circle(frame, (gx_px, gy_px), 8, GREEN, -1)
+        # Dot colour: red inside deadzone, green outside
+        in_dz = (gaze_x**2 + gaze_y**2) < deadzone**2
+        dot_col = (0, 80, 255) if in_dz else GREEN
+        cv2.circle(frame, (gx_px, gy_px), 8, dot_col, -1)
+        cv2.circle(frame, (gx_px, gy_px), 8, WHITE, 1)
 
     # ESC hint
-    txt("ESC/Q: quit   SPACE: pause   C: calibrate   H: head-neutral", 8, h - 10, GRAY, 0.42)
+    txt("ESC/Q: quit   SPACE: pause   C: calibrate   H: head-neutral   +/-: deadzone",
+        8, h - 10, GRAY, 0.40)
 
     return frame
 
@@ -283,6 +298,7 @@ def main():
                 frame, gaze_x, gaze_y, pitch,
                 speed_lr, speed_ud, speed_io, direction,
                 fps, paused, face_detected,
+                deadzone=mapper.config.gaze_deadzone,
             )
 
             cv2.imshow("SOLOASSIST Eye Tracking", frame)
@@ -315,6 +331,12 @@ def main():
                 if gaze_est._transform_matrix is not None:
                     head_est.calibrate_neutral(gaze_est._transform_matrix)
                     log.info("Head neutral set (pitch offset = %.1f°)", head_est.neutral_pitch)
+            elif key in (ord("+"), ord("="), ord(".")):  # + → deadzone größer
+                mapper.config.gaze_deadzone = min(0.60, mapper.config.gaze_deadzone + 0.02)
+                log.info("Deadzone: %.0f%%", mapper.config.gaze_deadzone * 100)
+            elif key in (ord("-"), ord(","), ord("_")):  # - → deadzone kleiner
+                mapper.config.gaze_deadzone = max(0.02, mapper.config.gaze_deadzone - 0.02)
+                log.info("Deadzone: %.0f%%", mapper.config.gaze_deadzone * 100)
 
     except KeyboardInterrupt:
         log.info("Interrupted by user")

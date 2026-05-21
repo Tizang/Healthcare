@@ -19,7 +19,9 @@ from dataclasses import dataclass, field
 @dataclass
 class MapperConfig:
     # Gaze deadzone — gaze values smaller than this are treated as centre
-    gaze_deadzone: float = 0.08
+    # 0.0 = no deadzone, 1.0 = full deadzone (arm never moves)
+    # Recommended: 0.15–0.25 to filter normal eye micro-movements
+    gaze_deadzone: float = 0.18
 
     # Head-pitch deadzone (degrees from neutral)
     pitch_deadzone: float = 4.0
