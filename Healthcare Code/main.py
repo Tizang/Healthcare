@@ -151,11 +151,33 @@ def draw_overlay(
     if gaze_x is not None and gaze_y is not None:
         gx_px = int(cx + np.clip(gaze_x, -1, 1) * r)
         gy_px = int(cy + np.clip(gaze_y, -1, 1) * r)
-        # Dot colour: red inside deadzone, green outside
         in_dz = (gaze_x**2 + gaze_y**2) < deadzone**2
         dot_col = (0, 80, 255) if in_dz else GREEN
         cv2.circle(frame, (gx_px, gy_px), 8, dot_col, -1)
         cv2.circle(frame, (gx_px, gy_px), 8, WHITE, 1)
+
+        # ── Gaze arrow on main frame ──────────────────────────────────────
+        # Center of frame as arrow origin
+        ax, ay = w // 2, h // 2
+        # Scale gaze [-1,+1] to arrow tip (max reach = 40% of half-width)
+        max_reach = int(min(w, h) * 0.38)
+        tip_x = int(ax + np.clip(gaze_x, -1, 1) * max_reach)
+        tip_y = int(ay + np.clip(gaze_y, -1, 1) * max_reach)
+
+        arrow_col = (0, 80, 255) if in_dz else GREEN
+        shaft_thick = 3 if in_dz else 5
+
+        # Shadow for readability over any background
+        cv2.arrowedLine(frame, (ax, ay), (tip_x, tip_y),
+                        (0, 0, 0), shaft_thick + 3,
+                        tipLength=0.25, line_type=cv2.LINE_AA)
+        cv2.arrowedLine(frame, (ax, ay), (tip_x, tip_y),
+                        arrow_col, shaft_thick,
+                        tipLength=0.25, line_type=cv2.LINE_AA)
+
+        # Small origin dot
+        cv2.circle(frame, (ax, ay), 6, arrow_col, -1)
+        cv2.circle(frame, (ax, ay), 6, WHITE, 1)
 
     # ESC hint
     txt("ESC/Q: quit   SPACE: pause   C: calibrate   H: head-neutral   +/-: deadzone",
