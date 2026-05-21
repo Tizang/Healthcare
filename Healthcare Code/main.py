@@ -228,6 +228,11 @@ def main():
         cal_data = run_calibration(gaze_est, cap)
         mapper._cal = cal_data
 
+    # ---- Fenster fullscreen ----
+    cv2.namedWindow("SOLOASSIST Eye Tracking", cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty("SOLOASSIST Eye Tracking",
+                          cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+
     # ---- State ----
     paused          = False
     last_face_time  = time.time()
