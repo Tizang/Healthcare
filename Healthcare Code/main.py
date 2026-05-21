@@ -28,8 +28,22 @@ import time
 import logging
 import threading
 import argparse
+import tkinter as _tk
 
 import numpy as np
+
+# Detect screen resolution via Tkinter (works on macOS/Windows/Linux)
+def _get_screen_size():
+    try:
+        r = _tk.Tk()
+        r.withdraw()
+        w, h = r.winfo_screenwidth(), r.winfo_screenheight()
+        r.destroy()
+        return w, h
+    except Exception:
+        return 1440, 900
+
+SCREEN_W, SCREEN_H = _get_screen_size()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -109,70 +123,79 @@ def draw_overlay(
     face_detected: bool,
     deadzone: float = 0.18,
     gaze_y_offset: float = -0.45,
+    gaze_scale: float = 2.8,
 ):
     h, w = frame.shape[:2]
+    sf = w / 640  # scale factor for UI elements relative to 640px base
 
-    # Semi-transparent dark bar at top
     overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (w, 105), (20, 20, 20), -1)
+    cv2.rectangle(overlay, (0, 0), (w, int(110 * sf)), (20, 20, 20), -1)
     cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
 
     def txt(msg, x, y, color=WHITE, scale=0.55, thick=1):
-        cv2.putText(frame, msg, (x, y), FONT, scale, color, thick, cv2.LINE_AA)
+        cv2.putText(frame, msg, (x, y), FONT,
+                    scale * sf, color, max(1, int(thick * sf)), cv2.LINE_AA)
 
-    txt(f"FPS: {fps:5.1f}", 10, 22, CYAN, 0.6, 2)
+    txt(f"FPS: {fps:5.1f}", 10, int(25 * sf), CYAN, 0.7, 2)
 
     if not face_detected:
-        txt("NO FACE DETECTED — ARM STOPPED", 10, 55, RED, 0.7, 2)
+        txt("NO FACE DETECTED — ARM STOPPED", 10, int(60 * sf), RED, 0.8, 2)
     elif paused:
-        txt("PAUSED  (SPACE to resume)", 10, 55, (0, 180, 255), 0.7, 2)
+        txt("PAUSED  (SPACE to resume)", 10, int(60 * sf), (0, 180, 255), 0.8, 2)
     else:
         gx_str = f"{gaze_x:+.2f}" if gaze_x is not None else "---"
         gy_str = f"{gaze_y:+.2f}" if gaze_y is not None else "---"
         p_str  = f"{pitch:+.1f}°"  if pitch  is not None else "---"
-        txt(f"Gaze  X:{gx_str}  Y:{gy_str}   Pitch:{p_str}", 10, 45, WHITE, 0.55)
-        txt(f"Arm   LR:{speed_lr:+4d}  UD:{speed_ud:+4d}  IO:{speed_io:+4d}", 10, 70, WHITE, 0.55)
-        txt(f"Direction: {direction}", 10, 95, GREEN, 0.6, 2)
+        txt(f"Gaze  X:{gx_str}  Y:{gy_str}   Pitch:{p_str}", 10, int(50 * sf), WHITE, 0.6)
+        txt(f"Arm   LR:{speed_lr:+4d}  UD:{speed_ud:+4d}  IO:{speed_io:+4d}", 10, int(75 * sf), WHITE, 0.6)
+        txt(f"Direction: {direction}", 10, int(100 * sf), GREEN, 0.7, 2)
 
-    # Gaze crosshair + deadzone visualisation (bottom-right)
-    cx, cy = w - 85, h - 85
-    r = 65
+    # Deadzone mini-map (bottom-right corner)
+    r   = int(70 * sf)
+    cx  = w - r - int(20 * sf)
+    cy  = h - r - int(20 * sf)
     cv2.circle(frame, (cx, cy), r, GRAY, 1)
     cv2.line(frame, (cx - r, cy), (cx + r, cy), GRAY, 1)
     cv2.line(frame, (cx, cy - r), (cx, cy + r), GRAY, 1)
-
-    # Deadzone circle (filled, semi-transparent red)
     dz_r = int(deadzone * r)
-    dz_overlay = frame.copy()
-    cv2.circle(dz_overlay, (cx, cy), dz_r, (0, 50, 180), -1)
-    cv2.addWeighted(dz_overlay, 0.25, frame, 0.75, 0, frame)
+    dz_ov = frame.copy()
+    cv2.circle(dz_ov, (cx, cy), dz_r, (0, 50, 180), -1)
+    cv2.addWeighted(dz_ov, 0.25, frame, 0.75, 0, frame)
     cv2.circle(frame, (cx, cy), dz_r, (0, 80, 255), 1)
-    txt(f"DZ {int(deadzone*100)}%", cx - dz_r - 28, cy - dz_r + 5, (0, 120, 255), 0.38)
+    txt(f"DZ {int(deadzone*100)}%", cx - dz_r - int(30*sf), cy - dz_r + int(5*sf),
+        (0, 120, 255), 0.42)
 
     if gaze_x is not None and gaze_y is not None:
-        gx_px = int(cx + np.clip(gaze_x, -1, 1) * r)
-        gy_px = int(cy + np.clip(gaze_y, -1, 1) * r)
-        in_dz = (gaze_x**2 + gaze_y**2) < deadzone**2
-        dot_col = (0, 80, 255) if in_dz else GREEN
-        cv2.circle(frame, (gx_px, gy_px), 8, dot_col, -1)
-        cv2.circle(frame, (gx_px, gy_px), 8, WHITE, 1)
-
-        # ── Gaze dot — maps full gaze range to full frame ─────────────────
-        # gaze ±1 = screen edge; corrected_y = 0 when looking straight ahead
+        # Corrected gaze (Y offset so neutral gaze = 0)
         corrected_y = gaze_y - gaze_y_offset
+        in_dz = (gaze_x**2 + corrected_y**2) < deadzone**2
 
-        # [-1, +1] → [0, w]  /  [0, h]
-        dot_x = int(np.clip((gaze_x     + 1) / 2 * w, 6, w - 6))
-        dot_y = int(np.clip((corrected_y + 1) / 2 * h, 6, h - 6))
+        # Mini-map dot (raw gaze, no scale)
+        mmx = int(cx + np.clip(gaze_x,      -1, 1) * r)
+        mmy = int(cy + np.clip(corrected_y, -1, 1) * r)
+        mm_col = (0, 80, 255) if in_dz else GREEN
+        cv2.circle(frame, (mmx, mmy), int(7*sf), mm_col, -1)
+        cv2.circle(frame, (mmx, mmy), int(7*sf), WHITE, 1)
 
-        dot_col_main = (0, 80, 255) if in_dz else GREEN
-        cv2.circle(frame, (dot_x, dot_y), 16, (0, 0, 0), -1)   # shadow
-        cv2.circle(frame, (dot_x, dot_y), 14, dot_col_main, -1)
-        cv2.circle(frame, (dot_x, dot_y), 14, WHITE, 2)
+        # ── Hauptcursor: skaliert auf vollen Screen ───────────────────────
+        # gaze_scale streckt den Gaze-Bereich auf den gesamten Frame:
+        # raw gaze ±(1/gaze_scale) entspricht dann einer Bildschirmecke
+        sx = np.clip(gaze_x      * gaze_scale, -1, 1)
+        sy = np.clip(corrected_y * gaze_scale, -1, 1)
 
-    # ESC hint
+        dot_x = int((sx + 1) / 2 * w)
+        dot_y = int((sy + 1) / 2 * h)
+        dot_x = max(14, min(w - 14, dot_x))
+        dot_y = max(14, min(h - 14, dot_y))
+
+        dot_r = int(14 * sf)
+        dot_col = (0, 80, 255) if in_dz else GREEN
+        cv2.circle(frame, (dot_x, dot_y), dot_r + 2, (0, 0, 0), -1)   # shadow
+        cv2.circle(frame, (dot_x, dot_y), dot_r,     dot_col,   -1)
+        cv2.circle(frame, (dot_x, dot_y), dot_r,     WHITE,      2)
+
     txt("ESC/Q: quit   SPACE: pause   C: calibrate   H: head-neutral   +/-: deadzone",
-        8, h - 10, GRAY, 0.40)
+        8, h - int(12 * sf), GRAY, 0.42)
 
     return frame
 
@@ -210,10 +233,10 @@ def main():
         sys.exit(1)
 
     # ---- Tracking & mapping objects ----
-    gaze_est   = GazeEstimator(min_detection_confidence=0.6)
+    gaze_est   = GazeEstimator(min_detection_confidence=0.5)
     head_est   = HeadPoseEstimator()
-    gaze_smoother  = Vec2Smoother(alpha=0.22)
-    pitch_smoother = ExponentialSmoother(alpha=0.18)
+    gaze_smoother  = Vec2Smoother(alpha=0.55)       # höher = aggressiver
+    pitch_smoother = ExponentialSmoother(alpha=0.45)
 
     # ---- Load calibration (affine transform) ----
     cal_data = CalibrationData.load()
@@ -225,10 +248,12 @@ def main():
         cal_data = run_calibration(gaze_est, cap)
         mapper._cal = cal_data
 
-    # ---- Fenster fullscreen ----
-    cv2.namedWindow("SOLOASSIST Eye Tracking", cv2.WINDOW_NORMAL)
-    cv2.setWindowProperty("SOLOASSIST Eye Tracking",
-                          cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    # ---- Fenster fullscreen (auf echte Screenauflösung skaliert) ----
+    WIN = "SOLOASSIST Eye Tracking"
+    cv2.namedWindow(WIN, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(WIN, SCREEN_W, SCREEN_H)
+    cv2.setWindowProperty(WIN, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    log.info("Screen: %dx%d", SCREEN_W, SCREEN_H)
 
     # ---- State ----
     paused          = False
@@ -312,15 +337,18 @@ def main():
 
             # ---- Debug drawing ----
             gaze_est.draw_debug(frame)
-            frame = draw_overlay(
-                frame, gaze_x, gaze_y, pitch,
+            # Resize to screen resolution before drawing so all coords match
+            display = cv2.resize(frame, (SCREEN_W, SCREEN_H),
+                                 interpolation=cv2.INTER_LINEAR)
+            display = draw_overlay(
+                display, gaze_x, gaze_y, pitch,
                 speed_lr, speed_ud, speed_io, direction,
                 fps, paused, face_detected,
                 deadzone=mapper.config.gaze_deadzone,
                 gaze_y_offset=mapper.config.gaze_y_offset,
             )
 
-            cv2.imshow("SOLOASSIST Eye Tracking", frame)
+            cv2.imshow(WIN, display)
 
             # ---- Key handling ----
             key = cv2.waitKey(1) & 0xFF
