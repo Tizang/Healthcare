@@ -92,12 +92,13 @@ except ImportError:
     sys.exit("FEHLER: mediapipe nicht installiert.\n"
              "  pip install mediapipe")
 
-from eye_tracking.gaze     import GazeEstimator
-from eye_tracking.head_pose import HeadPoseEstimator
-from eye_tracking.smoothing import Vec2Smoother, ExponentialSmoother
-from controller.mapper      import GazeToArmMapper, MapperConfig
-from controller.arm_controller import SoloAssistController
-from calibration.calibration   import run_calibration, CalibrationData
+from eye_tracking.gaze        import GazeEstimator
+from eye_tracking.head_pose   import HeadPoseEstimator
+from eye_tracking.smoothing   import Vec2Smoother, ExponentialSmoother
+from eye_tracking.apple_pointer import ApplePointerGaze
+from controller.mapper          import GazeToArmMapper, MapperConfig
+from controller.arm_controller  import SoloAssistController
+from calibration.calibration    import run_calibration, CalibrationData
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +227,8 @@ def main():
     parser.add_argument("--simulate", action="store_true", default=ARM_SIMULATE)
     parser.add_argument("--cam",      default=WEBCAM_INDEX, type=int)
     parser.add_argument("--calibrate", action="store_true", help="Run calibration on start")
+    parser.add_argument("--pointer-mode", action="store_true",
+                        help="Use Apple Head Pointer / Eye Tracking cursor instead of MediaPipe gaze")
     args = parser.parse_args()
 
     # ---- Arm connection ----
@@ -249,6 +252,14 @@ def main():
         sys.exit(1)
 
     # ---- Tracking & mapping objects ----
+    apple_gaze = None
+    if args.pointer_mode:
+        if not ApplePointerGaze.available():
+            log.error("--pointer-mode requires pyobjc-framework-Quartz: pip install pyobjc-framework-Quartz")
+            sys.exit(1)
+        apple_gaze = ApplePointerGaze(screen_w=SCREEN_W, screen_h=SCREEN_H)
+        log.info("POINTER MODE — using Apple Head Pointer / Eye Tracking cursor")
+
     gaze_est   = GazeEstimator(min_detection_confidence=0.5)
     head_est   = HeadPoseEstimator()
     gaze_smoother  = Vec2Smoother(alpha=0.55)       # höher = aggressiver
@@ -256,7 +267,10 @@ def main():
 
     # ---- Load calibration (affine transform) ----
     cal_data = CalibrationData.load()
-    mapper = GazeToArmMapper(MapperConfig(), calibration=cal_data)
+    cfg = MapperConfig()
+    if args.pointer_mode:
+        cfg.gaze_y_offset = 0.0   # Apple cursor has no iris bias
+    mapper = GazeToArmMapper(cfg, calibration=cal_data)
 
     # ---- Optional startup calibration ----
     if args.calibrate:
@@ -314,14 +328,22 @@ def main():
             fps = len(fps_times)
 
             # ---- Gaze estimation ----
-            raw_gx, raw_gy = gaze_est.estimate(frame)
-            face_detected = raw_gx is not None
-
-            if face_detected:
+            if apple_gaze is not None:
+                # Apple Head Pointer / Eye Tracking: read system cursor directly
+                raw_gx, raw_gy = apple_gaze.get()
+                face_detected = True
                 last_face_time = now
                 gaze_x, gaze_y = gaze_smoother.smooth(raw_gx, raw_gy)
+                # Still run MediaPipe for head pitch (IO control), but don't need gaze
+                gaze_est.estimate(frame)
             else:
-                gaze_x = gaze_y = None
+                raw_gx, raw_gy = gaze_est.estimate(frame)
+                face_detected = raw_gx is not None
+                if face_detected:
+                    last_face_time = now
+                    gaze_x, gaze_y = gaze_smoother.smooth(raw_gx, raw_gy)
+                else:
+                    gaze_x = gaze_y = None
 
             # ---- Head pose estimation ----
             pitch = None
@@ -362,6 +384,8 @@ def main():
                 fps, paused, face_detected,
                 deadzone=mapper.config.gaze_deadzone,
                 gaze_y_offset=mapper.config.gaze_y_offset,
+                # In pointer mode the cursor is already 1:1 mapped to the screen
+                gaze_scale=1.0 if apple_gaze else 2.8,
             )
 
             cv2.imshow(WIN, display)
