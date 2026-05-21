@@ -254,8 +254,8 @@ def main():
 
             # ---- Head pose estimation ----
             pitch = None
-            if gaze_est._landmarks is not None:
-                p, _, _ = head_est.estimate(gaze_est._landmarks, frame.shape)
+            if gaze_est._transform_matrix is not None:
+                p, _, _ = head_est.estimate(gaze_est._transform_matrix)
                 if p is not None:
                     pitch = pitch_smoother.smooth(p)
 
@@ -317,8 +317,8 @@ def main():
                 pitch_smoother.reset()
                 log.info("Calibration reset")
             elif key in (ord("h"), ord("H")):           # H → head neutral
-                if gaze_est._landmarks is not None:
-                    head_est.calibrate_neutral(gaze_est._landmarks, frame.shape)
+                if gaze_est._transform_matrix is not None:
+                    head_est.calibrate_neutral(gaze_est._transform_matrix)
                     log.info("Head neutral set (pitch offset = %.1f°)", head_est.neutral_pitch)
 
     except KeyboardInterrupt:
