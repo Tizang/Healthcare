@@ -156,28 +156,22 @@ def draw_overlay(
         cv2.circle(frame, (gx_px, gy_px), 8, dot_col, -1)
         cv2.circle(frame, (gx_px, gy_px), 8, WHITE, 1)
 
-        # ── Gaze arrow on main frame ──────────────────────────────────────
-        # Center of frame as arrow origin
-        ax, ay = w // 2, h // 2
-        # Scale gaze [-1,+1] to arrow tip (max reach = 40% of half-width)
+        # ── Gaze dot on main frame ────────────────────────────────────────
         max_reach = int(min(w, h) * 0.38)
-        tip_x = int(ax + np.clip(gaze_x, -1, 1) * max_reach)
-        tip_y = int(ay + np.clip(gaze_y, -1, 1) * max_reach)
+        # Y_ORIGIN_OFFSET: positive = Nullpunkt weiter unten (0.0 = Mitte)
+        Y_ORIGIN_OFFSET = 0.20
+        origin_x = w // 2
+        origin_y = int(h // 2 + Y_ORIGIN_OFFSET * h)
 
-        arrow_col = (0, 80, 255) if in_dz else GREEN
-        shaft_thick = 3 if in_dz else 5
+        dot_x = int(np.clip(origin_x + gaze_x * max_reach, 8, w - 8))
+        dot_y = int(np.clip(origin_y + gaze_y * max_reach, 8, h - 8))
 
-        # Shadow for readability over any background
-        cv2.arrowedLine(frame, (ax, ay), (tip_x, tip_y),
-                        (0, 0, 0), shaft_thick + 3,
-                        tipLength=0.25, line_type=cv2.LINE_AA)
-        cv2.arrowedLine(frame, (ax, ay), (tip_x, tip_y),
-                        arrow_col, shaft_thick,
-                        tipLength=0.25, line_type=cv2.LINE_AA)
-
-        # Small origin dot
-        cv2.circle(frame, (ax, ay), 6, arrow_col, -1)
-        cv2.circle(frame, (ax, ay), 6, WHITE, 1)
+        dot_col_main = (0, 80, 255) if in_dz else GREEN
+        # Shadow
+        cv2.circle(frame, (dot_x, dot_y), 16, (0, 0, 0), -1)
+        # Dot
+        cv2.circle(frame, (dot_x, dot_y), 14, dot_col_main, -1)
+        cv2.circle(frame, (dot_x, dot_y), 14, WHITE, 2)
 
     # ESC hint
     txt("ESC/Q: quit   SPACE: pause   C: calibrate   H: head-neutral   +/-: deadzone",
