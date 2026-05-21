@@ -306,7 +306,6 @@ def main():
                 cal_data = run_calibration(gaze_est, cap)
                 mapper._cal = cal_data
             elif key in (ord("r"), ord("R")):           # R → reset calibration
-                from calibration.calibration import CalibrationData
                 mapper._cal = CalibrationData()         # Identität
                 head_est.neutral_pitch = 0.0
                 gaze_smoother.reset()
