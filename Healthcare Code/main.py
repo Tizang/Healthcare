@@ -92,9 +92,9 @@ except ImportError:
     sys.exit("FEHLER: mediapipe nicht installiert.\n"
              "  pip install mediapipe")
 
-from eye_tracking.gaze        import GazeEstimator
-from eye_tracking.head_pose   import HeadPoseEstimator
-from eye_tracking.smoothing   import Vec2Smoother, ExponentialSmoother
+from eye_tracking.gaze          import GazeEstimator
+from eye_tracking.head_pose     import HeadPoseEstimator
+from eye_tracking.smoothing     import AdaptiveVec2Smoother, ExponentialSmoother
 from eye_tracking.apple_pointer import ApplePointerGaze
 from controller.mapper          import GazeToArmMapper, MapperConfig
 from controller.arm_controller  import SoloAssistController
@@ -262,7 +262,9 @@ def main():
 
     gaze_est   = GazeEstimator(min_detection_confidence=0.5)
     head_est   = HeadPoseEstimator()
-    gaze_smoother  = Vec2Smoother(alpha=0.55)       # höher = aggressiver
+    # Adaptive: light smoothing during fast saccades, heavy during fixation
+    gaze_smoother  = AdaptiveVec2Smoother(alpha_still=0.15, alpha_moving=0.65,
+                                          velocity_threshold=0.03)
     pitch_smoother = ExponentialSmoother(alpha=0.45)
 
     # ---- Load calibration (affine transform) ----
@@ -378,14 +380,22 @@ def main():
             # Resize to screen resolution before drawing so all coords match
             display = cv2.resize(frame, (SCREEN_W, SCREEN_H),
                                  interpolation=cv2.INTER_LINEAR)
+            # After calibration the polynomial already maps raw gaze → [-1,+1],
+            # so no extra stretching is needed. Without calibration we still
+            # need the scale factor to reach the screen edges.
+            is_calibrated = not np.allclose(
+                mapper._cal.poly_coeffs,
+                CalibrationData().poly_coeffs,
+            ) if mapper._cal is not None else False
+            gaze_scale = 1.0 if (apple_gaze or is_calibrated) else 2.8
+
             display = draw_overlay(
                 display, gaze_x, gaze_y, pitch,
                 speed_lr, speed_ud, speed_io, direction,
                 fps, paused, face_detected,
                 deadzone=mapper.config.gaze_deadzone,
                 gaze_y_offset=mapper.config.gaze_y_offset,
-                # In pointer mode the cursor is already 1:1 mapped to the screen
-                gaze_scale=1.0 if apple_gaze else 2.8,
+                gaze_scale=gaze_scale,
             )
 
             cv2.imshow(WIN, display)

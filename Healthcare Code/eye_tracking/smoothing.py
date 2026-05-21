@@ -56,3 +56,52 @@ class Vec2Smoother:
     def reset(self):
         self._x.reset()
         self._y.reset()
+
+
+class AdaptiveVec2Smoother:
+    """
+    Velocity-adaptive smoother for gaze.
+
+    During fixation (slow, small movements): heavy smoothing filters out
+    micro-tremor so the cursor stays still.
+
+    During a saccade (fast intentional eye movement): light smoothing lets
+    the cursor respond immediately with minimal lag.
+
+    Parameters
+    ----------
+    alpha_still   : EMA weight when eye velocity < threshold (heavy smooth)
+    alpha_moving  : EMA weight when eye velocity >= threshold (light smooth)
+    velocity_threshold : movement per frame that switches to fast mode
+    """
+
+    def __init__(
+        self,
+        alpha_still: float = 0.15,
+        alpha_moving: float = 0.6,
+        velocity_threshold: float = 0.04,
+    ):
+        self.alpha_still = alpha_still
+        self.alpha_moving = alpha_moving
+        self.velocity_threshold = velocity_threshold
+        self._prev: Optional[np.ndarray] = None
+        self._smoothed: Optional[np.ndarray] = None
+
+    def smooth(self, x: float, y: float):
+        val = np.array([x, y])
+
+        if self._smoothed is None:
+            self._prev = val.copy()
+            self._smoothed = val.copy()
+            return float(val[0]), float(val[1])
+
+        velocity = float(np.linalg.norm(val - self._prev))
+        alpha = self.alpha_moving if velocity > self.velocity_threshold else self.alpha_still
+
+        self._smoothed = alpha * val + (1.0 - alpha) * self._smoothed
+        self._prev = val.copy()
+        return float(self._smoothed[0]), float(self._smoothed[1])
+
+    def reset(self):
+        self._prev = None
+        self._smoothed = None

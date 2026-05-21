@@ -35,10 +35,11 @@ class MapperConfig:
     # Head pitch range at which max io speed is reached (degrees)
     pitch_max_deg: float = 20.0
 
-    # Calibration offsets (set during calibration procedure)
-    # gaze_y_offset is negative because iris sits above eye-centre at neutral
-    gaze_x_offset: float =  0.0
-    gaze_y_offset: float = -0.45
+    # Gaze offsets — with a proper calibration these stay at 0.0 because the
+    # polynomial calibration absorbs all systematic bias. Only adjust manually
+    # if running without calibration.
+    gaze_x_offset: float = 0.0
+    gaze_y_offset: float = 0.0
 
 
 class GazeToArmMapper:
