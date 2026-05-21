@@ -36,8 +36,9 @@ class MapperConfig:
     pitch_max_deg: float = 20.0
 
     # Calibration offsets (set during calibration procedure)
-    gaze_x_offset: float = 0.0
-    gaze_y_offset: float = 0.0
+    # gaze_y_offset is negative because iris sits above eye-centre at neutral
+    gaze_x_offset: float =  0.0
+    gaze_y_offset: float = -0.45
 
 
 class GazeToArmMapper:

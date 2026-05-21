@@ -108,6 +108,7 @@ def draw_overlay(
     paused: bool,
     face_detected: bool,
     deadzone: float = 0.18,
+    gaze_y_offset: float = -0.45,
 ):
     h, w = frame.shape[:2]
 
@@ -158,13 +159,13 @@ def draw_overlay(
 
         # ── Gaze dot on main frame ────────────────────────────────────────
         max_reach = int(min(w, h) * 0.38)
-        # Y_ORIGIN_OFFSET: positive = Nullpunkt weiter unten (0.0 = Mitte)
-        Y_ORIGIN_OFFSET = 0.20
         origin_x = w // 2
-        origin_y = int(h // 2 + Y_ORIGIN_OFFSET * h)
+        origin_y = h // 2
+        # Apply same Y offset as mapper so dot rests at centre when neutral
+        corrected_y = gaze_y - gaze_y_offset
 
         dot_x = int(np.clip(origin_x + gaze_x * max_reach, 8, w - 8))
-        dot_y = int(np.clip(origin_y + gaze_y * max_reach, 8, h - 8))
+        dot_y = int(np.clip(origin_y + corrected_y * max_reach, 8, h - 8))
 
         dot_col_main = (0, 80, 255) if in_dz else GREEN
         # Shadow
@@ -320,6 +321,7 @@ def main():
                 speed_lr, speed_ud, speed_io, direction,
                 fps, paused, face_detected,
                 deadzone=mapper.config.gaze_deadzone,
+                gaze_y_offset=mapper.config.gaze_y_offset,
             )
 
             cv2.imshow("SOLOASSIST Eye Tracking", frame)
