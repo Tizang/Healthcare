@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+calibration/calibration_data.json
