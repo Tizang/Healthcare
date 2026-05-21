@@ -28,20 +28,36 @@ import time
 import logging
 import threading
 import argparse
-import tkinter as _tk
+import subprocess
 
 import numpy as np
 
-# Detect screen resolution via Tkinter (works on macOS/Windows/Linux)
 def _get_screen_size():
+    # macOS: ask the system directly via osascript
     try:
-        r = _tk.Tk()
-        r.withdraw()
-        w, h = r.winfo_screenwidth(), r.winfo_screenheight()
-        r.destroy()
-        return w, h
+        out = subprocess.check_output(
+            ["osascript", "-e",
+             "tell application \"Finder\" to get bounds of window of desktop"],
+            text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+        parts = [int(x.strip()) for x in out.split(",")]
+        return parts[2], parts[3]   # "0, 0, W, H"
     except Exception:
-        return 1440, 900
+        pass
+    # Fallback: parse system_profiler
+    try:
+        out = subprocess.check_output(
+            ["system_profiler", "SPDisplaysDataType"],
+            text=True, stderr=subprocess.DEVNULL,
+        )
+        for line in out.splitlines():
+            if "Resolution" in line and "x" in line:
+                nums = [int(s) for s in line.split() if s.isdigit()]
+                if len(nums) >= 2:
+                    return nums[0], nums[1]
+    except Exception:
+        pass
+    return 1440, 900   # safe default
 
 SCREEN_W, SCREEN_H = _get_screen_size()
 
