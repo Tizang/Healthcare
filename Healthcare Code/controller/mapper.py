@@ -47,8 +47,9 @@ class GazeToArmMapper:
         speed_lr, speed_ud, speed_io = mapper.map(gaze_x, gaze_y, head_pitch)
     """
 
-    def __init__(self, config: MapperConfig | None = None):
+    def __init__(self, config: MapperConfig | None = None, calibration=None):
         self.config = config or MapperConfig()
+        self._cal = calibration   # CalibrationData oder None
 
     def map(
         self,
@@ -58,6 +59,10 @@ class GazeToArmMapper:
     ) -> tuple[int, int, int]:
         """Returns (speed_lr, speed_ud, speed_io)."""
         cfg = self.config
+
+        # Kalibrierungs-Transformation anwenden (affin, falls gesetzt)
+        if gaze_x is not None and gaze_y is not None and self._cal is not None:
+            gaze_x, gaze_y = self._cal.apply(gaze_x, gaze_y)
 
         # --- Left / Right from gaze X ---
         if gaze_x is not None:

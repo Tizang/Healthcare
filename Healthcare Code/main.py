@@ -186,19 +186,16 @@ def main():
     head_est   = HeadPoseEstimator()
     gaze_smoother  = Vec2Smoother(alpha=0.22)
     pitch_smoother = ExponentialSmoother(alpha=0.18)
-    mapper = GazeToArmMapper(MapperConfig())
 
-    # ---- Load calibration if it exists ----
+    # ---- Load calibration (affine transform) ----
     cal_data = CalibrationData.load()
-    mapper.config.gaze_x_offset = cal_data.gaze_x_offset
-    mapper.config.gaze_y_offset = cal_data.gaze_y_offset
+    mapper = GazeToArmMapper(MapperConfig(), calibration=cal_data)
 
     # ---- Optional startup calibration ----
     if args.calibrate:
         log.info("Starting calibration…")
         cal_data = run_calibration(gaze_est, cap)
-        mapper.config.gaze_x_offset = cal_data.gaze_x_offset
-        mapper.config.gaze_y_offset = cal_data.gaze_y_offset
+        mapper._cal = cal_data
 
     # ---- State ----
     paused          = False
@@ -307,11 +304,10 @@ def main():
                 with _send_lock:
                     _latest_cmd[:] = [0, 0, 0]
                 cal_data = run_calibration(gaze_est, cap)
-                mapper.config.gaze_x_offset = cal_data.gaze_x_offset
-                mapper.config.gaze_y_offset = cal_data.gaze_y_offset
+                mapper._cal = cal_data
             elif key in (ord("r"), ord("R")):           # R → reset calibration
-                mapper.config.gaze_x_offset = 0.0
-                mapper.config.gaze_y_offset = 0.0
+                from calibration.calibration import CalibrationData
+                mapper._cal = CalibrationData()         # Identität
                 head_est.neutral_pitch = 0.0
                 gaze_smoother.reset()
                 pitch_smoother.reset()
