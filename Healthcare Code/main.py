@@ -157,20 +157,16 @@ def draw_overlay(
         cv2.circle(frame, (gx_px, gy_px), 8, dot_col, -1)
         cv2.circle(frame, (gx_px, gy_px), 8, WHITE, 1)
 
-        # ── Gaze dot on main frame ────────────────────────────────────────
-        max_reach = int(min(w, h) * 0.38)
-        origin_x = w // 2
-        origin_y = h // 2
-        # Apply same Y offset as mapper so dot rests at centre when neutral
+        # ── Gaze dot — maps full gaze range to full frame ─────────────────
+        # gaze ±1 = screen edge; corrected_y = 0 when looking straight ahead
         corrected_y = gaze_y - gaze_y_offset
 
-        dot_x = int(np.clip(origin_x + gaze_x * max_reach, 8, w - 8))
-        dot_y = int(np.clip(origin_y + corrected_y * max_reach, 8, h - 8))
+        # [-1, +1] → [0, w]  /  [0, h]
+        dot_x = int(np.clip((gaze_x     + 1) / 2 * w, 6, w - 6))
+        dot_y = int(np.clip((corrected_y + 1) / 2 * h, 6, h - 6))
 
         dot_col_main = (0, 80, 255) if in_dz else GREEN
-        # Shadow
-        cv2.circle(frame, (dot_x, dot_y), 16, (0, 0, 0), -1)
-        # Dot
+        cv2.circle(frame, (dot_x, dot_y), 16, (0, 0, 0), -1)   # shadow
         cv2.circle(frame, (dot_x, dot_y), 14, dot_col_main, -1)
         cv2.circle(frame, (dot_x, dot_y), 14, WHITE, 2)
 
