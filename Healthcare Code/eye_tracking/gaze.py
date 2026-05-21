@@ -1,17 +1,20 @@
 """
 Iris-based gaze estimation using MediaPipe FaceLandmarker (Tasks API, v0.10+).
 
-Key improvements over basic 2D iris tracking:
-  - 3D gaze vector: uses depth component (lm.z) for full 3D iris offset
-  - Head-pose compensation: de-rotates gaze vector into face-local space so
-    head movement no longer displaces the cursor
-  - 5-point iris average: uses all 5 iris landmarks per eye (not just center)
-    for a more stable iris center estimate
+Algorithm (inspired by soumyagautam/Eye-Mouse-Tracking):
+  Use the absolute iris landmark position within the camera frame as gaze proxy.
+  When you look left, the iris moves to the left side of the frame.
+  When you look to the top-right corner, the iris moves to the top-right.
 
-Output:
-  gaze_x : float in approx [-0.5, +0.5]   negative = looking left
-  gaze_y : float in approx [-0.5, +0.5]   negative = looking up
-  (calibration maps this to the full [-1, +1] control range)
+  iris_x, iris_y ∈ [0, 1]  (normalised image coordinates from MediaPipe)
+  gaze_x, gaze_y ∈ [~-0.5, ~+0.5]  (centred on 0.5, raw — calibration maps to ±1)
+
+  Both iris centres (left=468, right=473) are averaged for stability.
+  Additionally, all 5 landmarks per iris ring are averaged to suppress jitter.
+
+Output after calibration:
+  gaze_x : float in [-1, +1]   negative = looking left, positive = right
+  gaze_y : float in [-1, +1]   negative = looking up,   positive = down
 """
 
 import os
@@ -22,30 +25,22 @@ import cv2
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
-# Landmark indices (478-point Face Mesh schema)
-LEFT_EYE_INNER   = 133
-LEFT_EYE_OUTER   = 33
-LEFT_EYE_TOP     = 159
-LEFT_EYE_BOTTOM  = 145
-RIGHT_EYE_INNER  = 362
-RIGHT_EYE_OUTER  = 263
-RIGHT_EYE_TOP    = 386
-RIGHT_EYE_BOTTOM = 374
-
-# 5 iris landmarks per eye: center + 4 cardinal points
+# Iris landmark indices in the 478-point Face Mesh
+# 468–472: left iris  (center, top, right, bottom, left)
+# 473–477: right iris (center, top, right, bottom, left)
 LEFT_IRIS  = [468, 469, 470, 471, 472]
 RIGHT_IRIS = [473, 474, 475, 476, 477]
 
-# Outer eye corners — used to estimate face scale (width) for z depth
-FACE_LEFT_PT  = 33
-FACE_RIGHT_PT = 263
+# Eye-corner landmarks — used only for draw_debug
+LEFT_EYE_CORNERS  = [33, 133, 159, 145]
+RIGHT_EYE_CORNERS = [263, 362, 386, 374]
 
 _MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "face_landmarker.task")
 
 
 class GazeEstimator:
     """
-    Estimates normalised gaze direction from a webcam frame.
+    Estimates gaze from iris position in the camera frame.
 
     Usage:
         est = GazeEstimator()
@@ -102,93 +97,29 @@ class GazeEstimator:
             if result.facial_transformation_matrixes else None
         )
 
-        h, w = bgr_frame.shape[:2]
+        # Average all 5 landmarks per iris ring for a stable centre estimate
+        left_x  = np.mean([lm[i].x for i in LEFT_IRIS])
+        left_y  = np.mean([lm[i].y for i in LEFT_IRIS])
+        right_x = np.mean([lm[i].x for i in RIGHT_IRIS])
+        right_y = np.mean([lm[i].y for i in RIGHT_IRIS])
 
-        # Face width in pixels — used to scale the z (depth) component so
-        # all three axes are in comparable pixel units
-        face_px = abs(lm[FACE_LEFT_PT].x - lm[FACE_RIGHT_PT].x) * w
-        face_scale = max(face_px, 1.0)
+        # Average both eyes
+        iris_x = (left_x + right_x) / 2.0
+        iris_y = (left_y + right_y) / 2.0
 
-        # Inverse rotation matrix for head-pose compensation
-        R_inv = self._rotation_inv()
+        # Map [0, 1] → [−1, +1] centred at 0.5
+        # (Calibration will correct offset + scale + non-linearity)
+        gaze_x = (iris_x - 0.5) * 2.0
+        gaze_y = (iris_y - 0.5) * 2.0
 
-        gx_l, gy_l = self._eye_gaze(lm, "left",  R_inv, h, w, face_scale)
-        gx_r, gy_r = self._eye_gaze(lm, "right", R_inv, h, w, face_scale)
-        return float((gx_l + gx_r) / 2.0), float((gy_l + gy_r) / 2.0)
-
-    def _rotation_inv(self):
-        """
-        Returns R^-1 from the facial transformation matrix.
-        Multiplying a camera-space vector by R^-1 rotates it into face-local
-        space, making it independent of head orientation.
-        """
-        if self._transform_matrix is None:
-            return None
-        T = np.array(self._transform_matrix)
-        if T.shape != (4, 4):
-            return None
-        R_raw = T[:3, :3]
-        # Normalise columns to remove any scale the matrix might carry
-        col_norms = np.linalg.norm(R_raw, axis=0)
-        col_norms = np.where(col_norms < 1e-9, 1.0, col_norms)
-        R = R_raw / col_norms[np.newaxis, :]
-        return R.T  # For orthogonal R: R^-1 = R^T
-
-    def _eye_gaze(self, lm, side: str, R_inv, h: int, w: int, face_scale: float):
-        if side == "left":
-            inner, outer = LEFT_EYE_INNER, LEFT_EYE_OUTER
-            top, bottom  = LEFT_EYE_TOP,   LEFT_EYE_BOTTOM
-            iris_indices = LEFT_IRIS
-        else:
-            inner, outer = RIGHT_EYE_INNER, RIGHT_EYE_OUTER
-            top, bottom  = RIGHT_EYE_TOP,   RIGHT_EYE_BOTTOM
-            iris_indices = RIGHT_IRIS
-
-        def pt3(idx):
-            # 3D point in approximate pixel/camera space
-            # z is scaled to the same order of magnitude as x, y
-            return np.array([
-                lm[idx].x * w,
-                lm[idx].y * h,
-                lm[idx].z * face_scale,
-            ])
-
-        # Iris center = average of all 5 iris landmarks
-        iris_pts = np.array([pt3(i) for i in iris_indices])
-        iris_pt  = iris_pts.mean(axis=0)
-
-        inner_pt = pt3(inner)
-        outer_pt = pt3(outer)
-        top_pt   = pt3(top)
-        bot_pt   = pt3(bottom)
-
-        eye_center = (inner_pt + outer_pt) / 2.0
-        eye_w = np.linalg.norm(outer_pt - inner_pt)
-        eye_h = np.linalg.norm(bot_pt   - top_pt)
-
-        if eye_w < 1 or eye_h < 1:
-            return 0.0, 0.0
-
-        # 3D gaze vector: direction from eye centre to iris in camera space
-        gaze_vec = iris_pt - eye_center
-
-        # Head-pose compensation: rotate into face-local frame
-        # After this, head rotation no longer affects the gaze signal
-        if R_inv is not None:
-            gaze_vec = R_inv @ gaze_vec
-
-        # Normalise by eye dimensions → approx [-0.5, +0.5] range
-        gx = gaze_vec[0] / (eye_w / 2.0)
-        gy = gaze_vec[1] / (eye_h / 2.0)
-        return float(gx), float(gy)
+        return float(gaze_x), float(gaze_y)
 
     def draw_debug(self, frame: np.ndarray) -> np.ndarray:
         if self._landmarks is None:
             return frame
         h, w = frame.shape[:2]
         lm = self._landmarks
-        for idx in (LEFT_EYE_INNER, LEFT_EYE_OUTER, LEFT_EYE_TOP, LEFT_EYE_BOTTOM,
-                    RIGHT_EYE_INNER, RIGHT_EYE_OUTER, RIGHT_EYE_TOP, RIGHT_EYE_BOTTOM):
+        for idx in LEFT_EYE_CORNERS + RIGHT_EYE_CORNERS:
             cv2.circle(frame, (int(lm[idx].x * w), int(lm[idx].y * h)), 3, (255, 80, 0), -1)
         for idx in LEFT_IRIS + RIGHT_IRIS:
             cv2.circle(frame, (int(lm[idx].x * w), int(lm[idx].y * h)), 3, (0, 255, 0), -1)

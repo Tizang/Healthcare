@@ -377,20 +377,28 @@ def main():
 
             # ---- Debug drawing ----
             gaze_est.draw_debug(frame)
-            # Resize to screen resolution before drawing so all coords match
             display = cv2.resize(frame, (SCREEN_W, SCREEN_H),
                                  interpolation=cv2.INTER_LINEAR)
-            # After calibration the polynomial already maps raw gaze → [-1,+1],
-            # so no extra stretching is needed. Without calibration we still
-            # need the scale factor to reach the screen edges.
-            is_calibrated = not np.allclose(
-                mapper._cal.poly_coeffs,
-                CalibrationData().poly_coeffs,
-            ) if mapper._cal is not None else False
-            gaze_scale = 1.0 if (apple_gaze or is_calibrated) else 2.8
+
+            # Show calibrated gaze in the overlay so the cursor dot reflects
+            # WHERE THE USER IS LOOKING (not the raw iris position).
+            # Without calibration: show raw gaze stretched to reach screen edges.
+            is_calibrated = (
+                mapper._cal is not None
+                and not np.allclose(mapper._cal.poly_coeffs, CalibrationData().poly_coeffs)
+            )
+            if is_calibrated and gaze_x is not None:
+                disp_gx, disp_gy = mapper._cal.apply(gaze_x, gaze_y)
+                gaze_scale = 1.0
+            elif apple_gaze:
+                disp_gx, disp_gy = gaze_x, gaze_y
+                gaze_scale = 1.0
+            else:
+                disp_gx, disp_gy = gaze_x, gaze_y
+                gaze_scale = 2.2   # stretch raw iris range to fill screen
 
             display = draw_overlay(
-                display, gaze_x, gaze_y, pitch,
+                display, disp_gx, disp_gy, pitch,
                 speed_lr, speed_ud, speed_io, direction,
                 fps, paused, face_detected,
                 deadzone=mapper.config.gaze_deadzone,
