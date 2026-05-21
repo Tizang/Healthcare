@@ -42,7 +42,7 @@ log = logging.getLogger("main")
 # ---------------------------------------------------------------------------
 ARM_IP        = "192.168.1.100"   # ← IP-Adresse des RemoteHost-PCs anpassen
 ARM_PORT      = 5000              # ← Port des RemoteHost anpassen
-ARM_SIMULATE  = True              # True = kein echter Arm, nur Debug-Output
+ARM_SIMULATE  = False             # True = kein echter Arm, nur Debug-Output
 WEBCAM_INDEX  = 0                 # Webcam-Index (0 = erste Kamera)
 SEND_INTERVAL = 0.05              # Sekunden zwischen Arm-Befehlen (20 Hz)
 FACE_TIMEOUT  = 2.0               # Stopp nach X Sekunden ohne Gesicht
