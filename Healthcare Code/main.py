@@ -49,7 +49,8 @@ SIMULATE  = _args.simulate
 
 WEBCAM       = 0
 MAX_SPEED    = 100
-DEADZONE     = 0.08
+DZ_X         = 0.20     # Totzone halbe Breite  (0.0–1.0 in normalisiertem Gaze-Raum)
+DZ_Y         = 0.20     # Totzone halbe Höhe
 FACE_TIMEOUT = 2.0      # nur relevant bei Webcam-Modus
 
 # Kalibrierungs-Timing
@@ -80,6 +81,12 @@ def _screen_size():
     return 1920, 1080
 
 SCREEN_W, SCREEN_H = _screen_size()
+
+# Totzone-Rechteck in Bildschirmpixeln (einmalig berechnet)
+_RX1 = int((1 - DZ_X) / 2 * SCREEN_W)
+_RX2 = int((1 + DZ_X) / 2 * SCREEN_W)
+_RY1 = int((1 - DZ_Y) / 2 * SCREEN_H)
+_RY2 = int((1 + DZ_Y) / 2 * SCREEN_H)
 
 
 # ── Gaze + Kalibrierung ───────────────────────────────────────────────────────
@@ -142,11 +149,11 @@ threading.Thread(target=_arm_loop, daemon=True).start()
 
 
 # ── Hilfsfunktionen ───────────────────────────────────────────────────────────
-def _to_speed(v: float) -> int:
-    if abs(v) < DEADZONE:
+def _to_speed(v: float, dz: float) -> int:
+    if abs(v) <= dz:
         return 0
     sign = 1 if v > 0 else -1
-    return int(sign * (abs(v) - DEADZONE) / (1.0 - DEADZONE) * MAX_SPEED)
+    return int(sign * (abs(v) - dz) / (1.0 - dz) * MAX_SPEED)
 
 
 # ── Kamera (optional — wird bei Tobii nur für das Display genutzt) ────────────
@@ -303,8 +310,8 @@ while True:
         gx = float(np.clip(_sx, -1.0, 1.0))
         gy = float(np.clip(_sy, -1.0, 1.0))
 
-        lr = _to_speed(gx)
-        ud = _to_speed(gy)
+        lr = _to_speed(gx, DZ_X)
+        ud = _to_speed(gy, DZ_Y)
 
         if face_ok and not paused and raw_x is not None:
             with _lock:
@@ -329,8 +336,17 @@ while True:
         else:
             cx = int(np.clip((gx + 1) / 2, 0, 1) * SCREEN_W)
             cy = int(np.clip((-gy + 1) / 2, 0, 1) * SCREEN_H)
-        in_dz   = abs(gx) < DEADZONE and abs(gy) < DEADZONE
-        dot_col = (100, 100, 255) if in_dz else (0, 220, 50)
+        in_rect  = abs(gx) <= DZ_X and abs(gy) <= DZ_Y
+        rect_col = (40, 40, 200) if in_rect else (0, 0, 220)   # dunkelrot innen, rot außen
+        cv2.rectangle(disp, (_RX1, _RY1), (_RX2, _RY2), rect_col, 3)
+        if in_rect:
+            # leicht rote Füllung wenn drin
+            overlay = disp.copy()
+            cv2.rectangle(overlay, (_RX1, _RY1), (_RX2, _RY2), (30, 30, 180), -1)
+            cv2.addWeighted(overlay, 0.15, disp, 0.85, 0, disp)
+            cv2.rectangle(disp, (_RX1, _RY1), (_RX2, _RY2), (40, 40, 200), 3)
+
+        dot_col = (100, 100, 255) if in_rect else (0, 220, 50)
         cv2.circle(disp, (cx, cy), 18, (0, 0, 0),     -1)
         cv2.circle(disp, (cx, cy), 14, dot_col,        -1)
         cv2.circle(disp, (cx, cy), 14, (255, 255, 255), 2)
