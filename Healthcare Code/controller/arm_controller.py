@@ -47,8 +47,8 @@ class Resp:
 
 
 # Speed limits — adjust for safety during testing
-MAX_SPEED = 200   # max ±200 units (range observed: ±320 in VB code)
-MIN_SPEED = -200
+MAX_SPEED = 125   # protocol range: -125...+125%
+MIN_SPEED = -125
 
 
 @dataclass

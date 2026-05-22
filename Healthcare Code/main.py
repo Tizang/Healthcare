@@ -34,7 +34,7 @@ from controller.arm_controller import SoloAssistController
 _ap = argparse.ArgumentParser()
 _ap.add_argument("--simulate", action="store_true", help="Kein echter Arm, nur Simulation")
 _ap.add_argument("--ip",   default="192.168.1.100")
-_ap.add_argument("--port", default=5000, type=int)
+_ap.add_argument("--port", default=5522, type=int)
 _args = _ap.parse_args()
 
 # ── Einstellungen ─────────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ ARM_PORT     = _args.port
 SIMULATE     = _args.simulate        # --simulate Flag oder unten auf True setzen
 
 WEBCAM       = 0                 # Webcam-Index
-MAX_SPEED    = 150               # Maximale Arm-Geschwindigkeit
+MAX_SPEED    = 100               # Arm-Geschwindigkeit (Doku: max ±125%, konservativ starten)
 DEADZONE     = 0.15              # Totzone in der Mitte (0.0–1.0)
 SMOOTH       = 0.5              # Glättung: 0=eingefroren, 1=roh/direkt
 GAZE_SCALE   = 3.5               # Verstärkung: roher Iris-Offset ≈ ±0.3 → ±1.0
