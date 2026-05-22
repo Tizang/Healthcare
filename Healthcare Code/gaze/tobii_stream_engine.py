@@ -12,31 +12,66 @@ import numpy as np
 
 from gaze.filters import KalmanFilter1D
 
+_DLL_NAME = "tobii_stream_engine.dll"
+
 _DLL_CANDIDATES = [
     r"C:\Program Files\Tobii\Tobii Stream Engine\tobii_stream_engine.dll",
     r"C:\Program Files (x86)\Tobii\Tobii Stream Engine\tobii_stream_engine.dll",
     r"C:\Program Files\Tobii\Tobii Streams\tobii_stream_engine.dll",
     r"C:\Program Files\Tobii\tobii_stream_engine.dll",
     r"C:\Program Files (x86)\Tobii\tobii_stream_engine.dll",
-    "tobii_stream_engine.dll",
+    r"C:\Program Files\Mill Mouse\tobii_stream_engine.dll",
+    r"C:\Program Files (x86)\Mill Mouse\tobii_stream_engine.dll",
 ]
 
 
 def _find_dll() -> ctypes.CDLL:
-    # 1. Bekannte Pfade prüfen
+    # 1. Direkt aus Windows DLL-Suchpfad (PATH, System32, etc.)
+    try:
+        dll = ctypes.CDLL(_DLL_NAME)
+        print(f"[Tobii] DLL aus PATH geladen")
+        return dll
+    except Exception:
+        pass
+
+    # 2. Bekannte Pfade
     for path in _DLL_CANDIDATES:
         if os.path.exists(path):
+            print(f"[Tobii] DLL gefunden: {path}")
             return ctypes.CDLL(path)
 
-    # 2. Rekursiv in C:\Program Files suchen
-    for base in (r"C:\Program Files", r"C:\Program Files (x86)"):
+    # 3. Geladene Prozess-Module durchsuchen (findet Mill Mouse DLL)
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["powershell", "-Command",
+             "Get-Process | ForEach-Object { try { $_.Modules } catch {} } | "
+             "Where-Object { $_.ModuleName -like '*tobii_stream*' } | "
+             "Select-Object -ExpandProperty FileName | Sort-Object -Unique"],
+            capture_output=True, text=True, timeout=10
+        )
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line and os.path.exists(line):
+                print(f"[Tobii] DLL aus Prozess gefunden: {line}")
+                return ctypes.CDLL(line)
+    except Exception:
+        pass
+
+    # 4. Rekursiv in Program Files und AppData suchen
+    search_roots = [
+        r"C:\Program Files",
+        r"C:\Program Files (x86)",
+        os.path.expanduser(r"~\AppData\Local"),
+    ]
+    for base in search_roots:
         for root, _dirs, files in os.walk(base):
-            if "tobii" in root.lower() and "tobii_stream_engine.dll" in files:
-                path = os.path.join(root, "tobii_stream_engine.dll")
+            if _DLL_NAME in files and "tobii" in root.lower():
+                path = os.path.join(root, _DLL_NAME)
                 print(f"[Tobii] DLL gefunden: {path}")
                 return ctypes.CDLL(path)
 
-    # 3. Windows Registry
+    # 5. Windows Registry
     try:
         import winreg
         for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
@@ -44,7 +79,7 @@ def _find_dll() -> ctypes.CDLL:
                 try:
                     key = winreg.OpenKey(hive, subkey)
                     install_dir, _ = winreg.QueryValueEx(key, "InstallDir")
-                    candidate = os.path.join(install_dir, "tobii_stream_engine.dll")
+                    candidate = os.path.join(install_dir, _DLL_NAME)
                     if os.path.exists(candidate):
                         return ctypes.CDLL(candidate)
                 except Exception:
@@ -52,18 +87,12 @@ def _find_dll() -> ctypes.CDLL:
     except ImportError:
         pass
 
-    # 4. Direkt aus PATH
-    try:
-        return ctypes.CDLL("tobii_stream_engine")
-    except Exception:
-        pass
-
     raise FileNotFoundError(
-        "tobii_stream_engine.dll nicht gefunden.\n"
+        f"{_DLL_NAME} nicht gefunden.\n"
         "Bitte in PowerShell ausführen:\n"
-        r"  Get-ChildItem -Path 'C:\' -Recurse -Filter 'tobii_stream_engine.dll' "
-        "-ErrorAction SilentlyContinue | Select-Object FullName\n"
-        "Dann den Pfad an konrad weitergeben."
+        "  Get-Process | ForEach-Object { try { $_.Modules } catch {} } | "
+        "Where-Object { $_.ModuleName -like '*tobii*' } | "
+        "Select-Object FileName | Sort-Object -Unique"
     )
 
 

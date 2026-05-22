@@ -39,7 +39,7 @@ _ap.add_argument("--port",             default=5522, type=int)
 _ap.add_argument("--skip-calibration", action="store_true")
 _ap.add_argument("--gaze-source", choices=("auto", "tobii", "cursor", "camera"),
                  default="auto")
-_ap.add_argument("--pedal-ip",   default=None,
+_ap.add_argument("--pedal-ip",   default="192.168.1.50",  # ← ESP32 IP hier eintragen
                  help="IP des ESP32 Pedal-Controllers (z.B. 192.168.1.50)")
 _ap.add_argument("--pedal-port", default=5566, type=int)
 _args = _ap.parse_args()
@@ -412,7 +412,6 @@ while True:
 _run[0] = False
 arm.stop()
 arm.disconnect()
-pedals.disconnect()
 estimator.disconnect()
 cap.release()
 cv2.destroyAllWindows()
