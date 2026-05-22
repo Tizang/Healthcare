@@ -20,6 +20,7 @@ import sys
 import time
 import subprocess
 import threading
+import argparse
 
 import cv2
 import numpy as np
@@ -29,17 +30,25 @@ from mediapipe.tasks.python import vision
 
 from controller.arm_controller import SoloAssistController
 
+# ── Kommandozeilen-Argumente ──────────────────────────────────────────────────
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--simulate", action="store_true", help="Kein echter Arm, nur Simulation")
+_ap.add_argument("--ip",   default="192.168.1.100")
+_ap.add_argument("--port", default=5000, type=int)
+_args = _ap.parse_args()
 
 # ── Einstellungen ─────────────────────────────────────────────────────────────
 
-ARM_IP       = "192.168.1.100"   # IP des SOLOASSIST RemoteHost
-ARM_PORT     = 5000
-SIMULATE     = False             # True = kein echter Arm (Testmodus)
+ARM_IP       = _args.ip
+ARM_PORT     = _args.port
+SIMULATE     = _args.simulate        # --simulate Flag oder unten auf True setzen
 
 WEBCAM       = 0                 # Webcam-Index
 MAX_SPEED    = 150               # Maximale Arm-Geschwindigkeit
 DEADZONE     = 0.15              # Totzone in der Mitte (0.0–1.0)
-SMOOTH       = 0.35              # Glättung: 0=eingefroren, 1=roh/direkt
+SMOOTH       = 0.5               # Glättung: 0=eingefroren, 1=roh/direkt
+GAZE_SCALE   = 3.5               # Verstärkung: roher Iris-Offset ≈ ±0.3 → ±1.0
+Y_OFFSET     = 0.35              # Iris sitzt natürlicherweise über Augenmitte → korrigieren
 FACE_TIMEOUT = 2.0               # Sekunden ohne Gesicht → Arm stoppt
 
 MODEL = "face_landmarker.task"   # MediaPipe Modell (im selben Ordner)
@@ -64,8 +73,6 @@ SCREEN_W, SCREEN_H = _screen_size()
 
 
 # ── MediaPipe FaceLandmarker ──────────────────────────────────────────────────
-# Gleiche Iris-Punkte wie im referenzierten Repo (468–477),
-# nur mit der neuen Tasks-API statt mp.solutions (nicht mehr verfügbar in 0.10+)
 
 _face_opts = vision.FaceLandmarkerOptions(
     base_options=mp_python.BaseOptions(model_asset_path=MODEL),
@@ -78,20 +85,19 @@ _face_opts = vision.FaceLandmarkerOptions(
 _landmarker = vision.FaceLandmarker.create_from_options(_face_opts)
 _t0 = time.time()
 
-# Iris-Landmark-Indices (wie im referenzierten Repo):
-#   468–472: linke Iris  (Mitte + 4 Eckpunkte)
-#   473–477: rechte Iris (Mitte + 4 Eckpunkte)
-IRIS = list(range(468, 478))
+# Augen-Eckpunkte zum Berechnen des Iris-Offsets
+LEFT_INNER,  LEFT_OUTER  = 133, 33
+LEFT_TOP,    LEFT_BOT    = 159, 145
+RIGHT_INNER, RIGHT_OUTER = 362, 263
+RIGHT_TOP,   RIGHT_BOT   = 386, 374
+LEFT_IRIS_C, RIGHT_IRIS_C = 468, 473
 
 
-def get_iris_pos(bgr_frame: np.ndarray):
+def get_gaze(bgr_frame: np.ndarray):
     """
-    Gibt (iris_x, iris_y) in [0, 1] zurück — direkte Bildschirmposition.
-    Gibt (None, None) zurück wenn kein Gesicht erkannt.
-
-    Gleicher Ansatz wie soumyagautam/Eye-Mouse-Tracking:
-      screen_x = screen_w * landmark.x
-      screen_y = screen_h * landmark.y
+    Gibt (gaze_x, gaze_y) zurück — Iris-Offset vom Augenmittelpunkt.
+    gx normalisiert auf Augenbreite, gy normalisiert auf Augenhöhe.
+    Typischer Bereich: ±0.3. Gibt (None, None) zurück wenn kein Gesicht.
     """
     rgb = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
     img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
@@ -103,10 +109,21 @@ def get_iris_pos(bgr_frame: np.ndarray):
 
     lm = res.face_landmarks[0]
 
-    # Alle 10 Iris-Punkte (beide Augen) mitteln → stabiler als einzelner Punkt
-    ix = sum(lm[i].x for i in IRIS) / len(IRIS)
-    iy = sum(lm[i].y for i in IRIS) / len(IRIS)
-    return float(ix), float(iy)
+    def eye_gaze(inner, outer, top, bot, iris_c):
+        cx = (lm[inner].x + lm[outer].x) / 2
+        cy = (lm[inner].y + lm[outer].y) / 2
+        ew = abs(lm[outer].x - lm[inner].x)   # Breite für X
+        eh = abs(lm[bot].y   - lm[top].y)     # Höhe für Y  ← war vorher ew!
+        if ew < 0.001 or eh < 0.001:
+            return 0.0, 0.0
+        gx = (lm[iris_c].x - cx) / (ew / 2)
+        gy = (lm[iris_c].y - cy) / (eh / 2)
+        return gx, gy
+
+    lx, ly = eye_gaze(LEFT_INNER,  LEFT_OUTER,  LEFT_TOP,  LEFT_BOT,  LEFT_IRIS_C)
+    rx, ry = eye_gaze(RIGHT_INNER, RIGHT_OUTER, RIGHT_TOP, RIGHT_BOT, RIGHT_IRIS_C)
+
+    return float((lx + rx) / 2), float((ly + ry) / 2)
 
 
 # ── Arm ───────────────────────────────────────────────────────────────────────
@@ -171,8 +188,8 @@ cv2.namedWindow(WIN, cv2.WINDOW_NORMAL)
 cv2.resizeWindow(WIN, SCREEN_W, SCREEN_H)
 cv2.setWindowProperty(WIN, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
-# Geglättete Iris-Position (startet in der Mitte)
-sx, sy   = 0.5, 0.5
+# Geglätteter Gaze-Wert (startet in der Mitte = kein Ausschlag)
+sx, sy    = 0.0, 0.0
 last_face = time.time()
 paused    = False
 fps_buf   = []
@@ -184,33 +201,31 @@ while True:
     if not ok:
         continue
 
-    frame = cv2.flip(frame, 1)   # spiegeln wie im referenzierten Repo
+    frame = cv2.flip(frame, 1)
 
     now = time.time()
     fps_buf = [t for t in fps_buf + [now] if now - t < 1.0]
     fps = len(fps_buf)
 
-    # ── Iris tracken ──────────────────────────────────────────────────────
-    ix, iy = get_iris_pos(frame)
+    # ── Gaze schätzen ─────────────────────────────────────────────────────
+    raw_x, raw_y = get_gaze(frame)
 
-    if ix is not None:
+    if raw_x is not None:
         last_face = now
-        # Exponential Moving Average — genau wie `screen_x` im Repo,
-        # nur mit leichter Glättung damit der Cursor nicht zittert
-        sx = SMOOTH * ix + (1.0 - SMOOTH) * sx
-        sy = SMOOTH * iy + (1.0 - SMOOTH) * sy
+        sx = SMOOTH * raw_x               + (1.0 - SMOOTH) * sx
+        sy = SMOOTH * (raw_y + Y_OFFSET)  + (1.0 - SMOOTH) * sy
 
     face_ok = (now - last_face) < FACE_TIMEOUT
 
-    # ── Iris → Arm-Geschwindigkeit ────────────────────────────────────────
-    # iris [0,1] → gaze [-1,+1] (0.5 = Mitte = Stopp)
-    gx =  (sx - 0.5) * 2.0   # links/rechts
-    gy = -(sy - 0.5) * 2.0   # oben/unten (Y invertiert: Iris oben = hoch)
+    # ── Gaze → Arm-Geschwindigkeit ────────────────────────────────────────
+    # Roher Offset ≈ ±0.3 → mit GAZE_SCALE auf ±1 strecken
+    gx =  np.clip(sx * GAZE_SCALE, -1.0, 1.0)
+    gy = -np.clip(sy * GAZE_SCALE, -1.0, 1.0)   # Y invertiert: Iris oben = hoch
 
     lr = _to_speed(gx)
     ud = _to_speed(gy)
 
-    if face_ok and not paused and ix is not None:
+    if face_ok and not paused and raw_x is not None:
         with _lock:
             _cmd[:] = [lr, ud, 0]
     else:
@@ -221,8 +236,9 @@ while True:
     disp = cv2.resize(frame, (SCREEN_W, SCREEN_H), interpolation=cv2.INTER_LINEAR)
 
     # Cursor-Punkt (direkte Iris-Position, wie im Repo: screen = screen_w * iris_x)
-    cx = int(sx * SCREEN_W)
-    cy = int(sy * SCREEN_H)
+    # Cursor-Position: gx/gy in [-1,+1] → Bildschirmpixel
+    cx = int(np.clip((gx + 1) / 2, 0, 1) * SCREEN_W)
+    cy = int(np.clip((-gy + 1) / 2, 0, 1) * SCREEN_H)   # gy ist schon invertiert
     in_dz   = abs(gx) < DEADZONE and abs(gy) < DEADZONE
     dot_col = (100, 100, 255) if in_dz else (0, 220, 50)   # blau=Totzone, grün=aktiv
     cv2.circle(disp, (cx, cy), 18, (0, 0, 0),   -1)
