@@ -46,7 +46,7 @@ SIMULATE     = _args.simulate        # --simulate Flag oder unten auf True setze
 WEBCAM       = 0                 # Webcam-Index
 MAX_SPEED    = 150               # Maximale Arm-Geschwindigkeit
 DEADZONE     = 0.15              # Totzone in der Mitte (0.0–1.0)
-SMOOTH       = 0.5               # Glättung: 0=eingefroren, 1=roh/direkt
+SMOOTH       = 0.5              # Glättung: 0=eingefroren, 1=roh/direkt
 GAZE_SCALE   = 3.5               # Verstärkung: roher Iris-Offset ≈ ±0.3 → ±1.0
 Y_OFFSET     = 0.35              # Iris sitzt natürlicherweise über Augenmitte → korrigieren
 FACE_TIMEOUT = 2.0               # Sekunden ohne Gesicht → Arm stoppt
@@ -54,19 +54,27 @@ FACE_TIMEOUT = 2.0               # Sekunden ohne Gesicht → Arm stoppt
 MODEL = "face_landmarker.task"   # MediaPipe Modell (im selben Ordner)
 
 
-# ── Bildschirmgrösse erkennen (macOS) ─────────────────────────────────────────
+# ── Bildschirmgrösse erkennen (Windows + macOS) ───────────────────────────────
 
 def _screen_size():
-    try:
-        out = subprocess.check_output(
-            ["osascript", "-e",
-             'tell application "Finder" to get bounds of window of desktop'],
-            text=True, stderr=subprocess.DEVNULL,
-        ).strip()
-        p = [int(x.strip()) for x in out.split(",")]
-        return p[2], p[3]
-    except Exception:
-        pass
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            u = ctypes.windll.user32
+            return u.GetSystemMetrics(0), u.GetSystemMetrics(1)
+        except Exception:
+            pass
+    else:
+        try:
+            out = subprocess.check_output(
+                ["osascript", "-e",
+                 'tell application "Finder" to get bounds of window of desktop'],
+                text=True, stderr=subprocess.DEVNULL,
+            ).strip()
+            p = [int(x.strip()) for x in out.split(",")]
+            return p[2], p[3]
+        except Exception:
+            pass
     return 1440, 900
 
 SCREEN_W, SCREEN_H = _screen_size()
