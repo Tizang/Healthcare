@@ -23,6 +23,7 @@ import threading
 import argparse
 
 import cv2
+import os
 import numpy as np
 import mediapipe as mp
 from mediapipe.tasks import python as mp_python
@@ -51,7 +52,8 @@ GAZE_SCALE   = 3.5               # Verstärkung: roher Iris-Offset ≈ ±0.3 →
 Y_OFFSET     = 0.35              # Iris sitzt natürlicherweise über Augenmitte → korrigieren
 FACE_TIMEOUT = 2.0               # Sekunden ohne Gesicht → Arm stoppt
 
-MODEL = "face_landmarker.task"   # MediaPipe Modell (im selben Ordner)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL = os.path.join(BASE_DIR, "face_landmarker.task")
 
 
 # ── Bildschirmgrösse erkennen (Windows + macOS) ───────────────────────────────
