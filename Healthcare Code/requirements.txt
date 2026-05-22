@@ -1,9 +1,14 @@
 opencv-python>=4.8.0
 mediapipe>=0.10.0
 numpy>=1.24.0
+pyautogui>=0.9.54
 
-# Für maximale Genauigkeit (optional):
+# Tobii 4C (empfohlen, höchste Genauigkeit):
+#   1. Tobii Experience Software installieren (tobii.com/consumer)
+#   2. pip install tobii-research
+# tobii-research>=1.10.1
+
+# L2CS-Net (optional, wenn kein Tobii):
 # pip install torch torchvision l2cs
-# Dann Modell herunterladen:
-# https://drive.google.com/file/d/1eUr4OALR9K9P1WVuKTqBnXMa65JEm0Gh/
+# Modell: https://drive.google.com/file/d/1eUr4OALR9K9P1WVuKTqBnXMa65JEm0Gh/
 # Ablegen unter: Healthcare Code/models/L2CSNet_gaze360.pkl

@@ -21,7 +21,10 @@ try:
 except ImportError:
     pass
 
-L2CS_WEIGHTS = "models/L2CSNet_gaze360.pkl"
+import os as _os
+_BASE = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+L2CS_WEIGHTS = _os.path.join(_BASE, "models", "L2CSNet_gaze360.pkl")
+_MP_MODEL_DEFAULT = _os.path.join(_BASE, "face_landmarker.task")
 
 # ── MediaPipe landmarks ───────────────────────────────────────────────────────
 import mediapipe as mp
@@ -59,16 +62,27 @@ class KalmanFilter1D:
 class GazeEstimator:
     """
     Estimates gaze direction as (gx, gy) in raw sensor units.
-    Smoothed internally with Kalman filters.
+    Priority: Tobii Eye Tracker → L2CS-Net → MediaPipe.
 
     After calibration, pass output through GazeCalibration.transform().
     """
 
-    def __init__(self, mediapipe_model: str = "face_landmarker.task"):
+    def __init__(self, mediapipe_model: str = _MP_MODEL_DEFAULT):
         self.mode = "mediapipe"
         self._kx = KalmanFilter1D()
         self._ky = KalmanFilter1D()
+        self._delegate = None
 
+        # 1. Tobii Eye Tracker
+        try:
+            from gaze.tobii_estimator import TobiiEstimator
+            self._delegate = TobiiEstimator()
+            self.mode = "tobii"
+            return
+        except Exception as e:
+            print(f"[Gaze] Tobii nicht verfügbar ({e}), versuche L2CS-Net/MediaPipe")
+
+        # 2. L2CS-Net
         if _l2cs_available:
             import os
             if os.path.exists(L2CS_WEIGHTS):
@@ -102,12 +116,15 @@ class GazeEstimator:
             self._t0 = time.time()
             print("[Gaze] MediaPipe aktiv")
 
-    def estimate(self, bgr_frame: np.ndarray):
+    def estimate(self, bgr_frame: np.ndarray | None = None):
         """
-        Returns smoothed (gx, gy), or (None, None) if no face detected.
+        Returns smoothed (gx, gy), or (None, None) if no face/gaze detected.
         gx: negative=links, positive=rechts
         gy: negative=unten, positive=oben
         """
+        if self._delegate is not None:
+            return self._delegate.estimate(bgr_frame)
+
         if self.mode == "l2cs":
             raw = self._raw_l2cs(bgr_frame)
         else:
@@ -121,6 +138,9 @@ class GazeEstimator:
         return gx, gy
 
     def reset_filter(self):
+        if self._delegate is not None:
+            self._delegate.reset_filter()
+            return
         self._kx.reset()
         self._ky.reset()
 

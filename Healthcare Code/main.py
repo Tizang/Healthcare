@@ -45,8 +45,8 @@ SIMULATE  = _args.simulate
 
 WEBCAM       = 0
 MAX_SPEED    = 100
-DEADZONE     = 0.08     # nach Kalibrierung kleinere Totzone möglich
-FACE_TIMEOUT = 2.0
+DEADZONE     = 0.08
+FACE_TIMEOUT = 2.0      # nur relevant bei Webcam-Modus
 
 # Kalibrierungs-Timing
 _SETTLE  = 0.7   # Sekunden warten bevor Messung startet (Auge anpassen)
@@ -127,16 +127,15 @@ def _to_speed(v: float) -> int:
     return int(sign * (abs(v) - DEADZONE) / (1.0 - DEADZONE) * MAX_SPEED)
 
 
-# ── Kamera ────────────────────────────────────────────────────────────────────
+# ── Kamera (optional — wird bei Tobii nur für das Display genutzt) ────────────
 cap = cv2.VideoCapture(WEBCAM)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 cap.set(cv2.CAP_PROP_FPS,          30)
-
-if not cap.isOpened():
-    print(f"FEHLER: Webcam {WEBCAM} nicht verfügbar")
-    arm.disconnect()
-    sys.exit(1)
+_has_camera = cap.isOpened()
+if not _has_camera:
+    print(f"[Kamera] Keine Webcam — Display zeigt schwarzes Bild")
+_black_frame = np.zeros((SCREEN_H, SCREEN_W, 3), dtype=np.uint8)
 
 WIN = "SOLOASSIST Eye Tracking"
 cv2.namedWindow(WIN, cv2.WINDOW_NORMAL)
@@ -177,21 +176,26 @@ print(f"Gestartet. {SCREEN_W}×{SCREEN_H}  |  ESC=Beenden  SPACE=Pause  C=Kalibr
 
 # ── Hauptschleife ─────────────────────────────────────────────────────────────
 while True:
-    ok, frame = cap.read()
-    if not ok:
-        continue
-
-    frame = cv2.flip(frame, 1)
-    now   = time.time()
+    now = time.time()
     fps_buf = [t for t in fps_buf + [now] if now - t < 1.0]
     fps     = len(fps_buf)
 
-    raw_x, raw_y = estimator.estimate(frame)
+    # Kamerabild (nur für Display)
+    if _has_camera:
+        ok, frame = cap.read()
+        if ok:
+            frame = cv2.flip(frame, 1)
+            disp = cv2.resize(frame, (SCREEN_W, SCREEN_H), interpolation=cv2.INTER_LINEAR)
+        else:
+            disp = _black_frame.copy()
+    else:
+        disp = _black_frame.copy()
+
+    # Gaze schätzen (Tobii: kein Frame nötig; Webcam: Frame wird genutzt)
+    raw_x, raw_y = estimator.estimate(frame if _has_camera else None)
     if raw_x is not None:
         last_face = now
-    face_ok = (now - last_face) < FACE_TIMEOUT
-
-    disp = cv2.resize(frame, (SCREEN_W, SCREEN_H), interpolation=cv2.INTER_LINEAR)
+    face_ok = (now - last_face) < FACE_TIMEOUT or estimator.mode == "tobii"
 
     # ── KALIBRIERUNG ──────────────────────────────────────────────────────
     if STATE == "calibrating":
