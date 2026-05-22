@@ -313,9 +313,19 @@ while True:
             with _lock:
                 _cmd[:] = [0, 0, 0]
 
-        # Cursor
-        cx      = int(np.clip((gx + 1) / 2, 0, 1) * SCREEN_W)
-        cy      = int(np.clip((-gy + 1) / 2, 0, 1) * SCREEN_H)
+        # Cursor — im Cursor-Modus direkt Mausposition verwenden
+        if estimator.mode == "cursor":
+            try:
+                import pyautogui
+                cx, cy = pyautogui.position()
+                cx = int(np.clip(cx, 0, SCREEN_W - 1))
+                cy = int(np.clip(cy, 0, SCREEN_H - 1))
+            except Exception:
+                cx = int(np.clip((gx + 1) / 2, 0, 1) * SCREEN_W)
+                cy = int(np.clip((-gy + 1) / 2, 0, 1) * SCREEN_H)
+        else:
+            cx = int(np.clip((gx + 1) / 2, 0, 1) * SCREEN_W)
+            cy = int(np.clip((-gy + 1) / 2, 0, 1) * SCREEN_H)
         in_dz   = abs(gx) < DEADZONE and abs(gy) < DEADZONE
         dot_col = (100, 100, 255) if in_dz else (0, 220, 50)
         cv2.circle(disp, (cx, cy), 18, (0, 0, 0),     -1)
