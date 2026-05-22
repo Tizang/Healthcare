@@ -56,7 +56,16 @@ class GazeEstimator:
         self._ky = KalmanFilter1D()
         self._delegate = None
 
-        # 1. tobii-research SDK (Python ≤ 3.10)
+        # 1. Tobii Stream Engine (Tobii 4C, jede Python-Version)
+        try:
+            from gaze.tobii_stream_engine import TobiiStreamEngineEstimator
+            self._delegate = TobiiStreamEngineEstimator()
+            self.mode = "tobii"
+            return
+        except Exception as e:
+            print(f"[Gaze] Tobii Stream Engine nicht verfügbar ({e})")
+
+        # 2. tobii-research SDK (Python ≤ 3.10, Fallback)
         try:
             from gaze.tobii_estimator import TobiiEstimator
             self._delegate = TobiiEstimator()
@@ -65,7 +74,7 @@ class GazeEstimator:
         except Exception as e:
             print(f"[Gaze] tobii-research nicht verfügbar ({e})")
 
-        # 2. Cursor-Modus via pyautogui (Tobii Experience steuert Cursor)
+        # 3. Cursor-Modus via pyautogui
         try:
             from gaze.cursor_estimator import CursorEstimator
             self._delegate = CursorEstimator(screen_w, screen_h)
