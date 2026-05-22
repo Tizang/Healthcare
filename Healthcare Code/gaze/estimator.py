@@ -44,35 +44,52 @@ _L_IRIS,   _R_IRIS   = 468, 473
 class GazeEstimator:
     """
     Estimates gaze direction as (gx, gy) in raw sensor units.
-    Priority: tobii-research → Cursor/pyautogui → L2CS-Net → MediaPipe.
+    Source selection:
+      auto   → tobii-research → Cursor/pyautogui → L2CS-Net → MediaPipe
+      tobii  → Tobii SDK only
+      cursor → System cursor only
+      camera → L2CS/MediaPipe only
 
     After calibration, pass output through GazeCalibration.transform().
     """
 
     def __init__(self, screen_w: int = 1920, screen_h: int = 1080,
-                 mediapipe_model: str = _MP_MODEL_DEFAULT):
+                 mediapipe_model: str = _MP_MODEL_DEFAULT,
+                 source: str = "auto"):
+        if source not in ("auto", "tobii", "cursor", "camera"):
+            raise ValueError(f"Unknown gaze source: {source}")
+
         self.mode = "mediapipe"
         self._kx = KalmanFilter1D()
         self._ky = KalmanFilter1D()
         self._delegate = None
 
         # 1. tobii-research SDK (Python ≤ 3.10)
-        try:
-            from gaze.tobii_estimator import TobiiEstimator
-            self._delegate = TobiiEstimator()
-            self.mode = "tobii"
-            return
-        except Exception as e:
-            print(f"[Gaze] tobii-research nicht verfügbar ({e})")
+        if source in ("auto", "tobii"):
+            try:
+                from gaze.tobii_estimator import TobiiEstimator
+                self._delegate = TobiiEstimator()
+                self.mode = "tobii"
+                return
+            except Exception as e:
+                if source == "tobii":
+                    raise RuntimeError(f"Tobii-Modus konnte nicht gestartet werden: {e}") from e
+                print(f"[Gaze] tobii-research nicht verfügbar ({e})")
 
         # 2. Cursor-Modus via pyautogui (Tobii Experience steuert Cursor)
-        try:
-            from gaze.cursor_estimator import CursorEstimator
-            self._delegate = CursorEstimator(screen_w, screen_h)
-            self.mode = "cursor"
-            return
-        except Exception as e:
-            print(f"[Gaze] Cursor-Modus nicht verfügbar ({e}), nutze Kamera")
+        if source in ("auto", "cursor"):
+            try:
+                from gaze.cursor_estimator import CursorEstimator
+                self._delegate = CursorEstimator(screen_w, screen_h)
+                self.mode = "cursor"
+                return
+            except Exception as e:
+                if source == "cursor":
+                    raise RuntimeError(f"Cursor-Modus konnte nicht gestartet werden: {e}") from e
+                print(f"[Gaze] Cursor-Modus nicht verfügbar ({e}), nutze Kamera")
+
+        if source == "camera":
+            print("[Gaze] Kamera-Modus erzwungen")
 
         # 3. L2CS-Net
         if _l2cs_available:
@@ -135,6 +152,10 @@ class GazeEstimator:
             return
         self._kx.reset()
         self._ky.reset()
+
+    def disconnect(self):
+        if self._delegate is not None and hasattr(self._delegate, "disconnect"):
+            self._delegate.disconnect()
 
     # ── L2CS-Net ──────────────────────────────────────────────────────────────
 

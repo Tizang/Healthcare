@@ -37,6 +37,9 @@ _ap.add_argument("--ip",               default="127.0.0.1")
 _ap.add_argument("--port",             default=5522, type=int)
 _ap.add_argument("--skip-calibration", action="store_true",
                  help="Gespeicherte Kalibrierung nutzen ohne Neukalibrierung")
+_ap.add_argument("--gaze-source", choices=("auto", "tobii", "cursor", "camera"),
+                 default="auto",
+                 help="Gaze input: auto, tobii SDK, cursor, or camera")
 _args = _ap.parse_args()
 
 # ── Einstellungen ─────────────────────────────────────────────────────────────
@@ -80,7 +83,20 @@ SCREEN_W, SCREEN_H = _screen_size()
 
 
 # ── Gaze + Kalibrierung ───────────────────────────────────────────────────────
-estimator   = GazeEstimator(screen_w=SCREEN_W, screen_h=SCREEN_H)
+try:
+    estimator = GazeEstimator(
+        screen_w=SCREEN_W,
+        screen_h=SCREEN_H,
+        source=_args.gaze_source,
+    )
+except RuntimeError as e:
+    print(f"FEHLER: {e}")
+    if _args.gaze_source == "tobii":
+        print("Hinweis: Für Tobii 4C braucht der direkte SDK-Modus meist Windows, "
+              "Tobii Experience/Runtime und Python <= 3.10 mit tobii-research.")
+        print("Alternative: Tobii-Cursorsteuerung aktivieren und mit "
+              "--gaze-source cursor starten.")
+    sys.exit(1)
 calibration = GazeCalibration()
 
 _calib_loaded = calibration.load()
@@ -332,6 +348,7 @@ while True:
 _run[0] = False
 arm.stop()
 arm.disconnect()
+estimator.disconnect()
 cap.release()
 cv2.destroyAllWindows()
 print("Beendet.")
