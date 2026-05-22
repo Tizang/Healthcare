@@ -62,27 +62,37 @@ class KalmanFilter1D:
 class GazeEstimator:
     """
     Estimates gaze direction as (gx, gy) in raw sensor units.
-    Priority: Tobii Eye Tracker → L2CS-Net → MediaPipe.
+    Priority: tobii-research → Cursor/pyautogui → L2CS-Net → MediaPipe.
 
     After calibration, pass output through GazeCalibration.transform().
     """
 
-    def __init__(self, mediapipe_model: str = _MP_MODEL_DEFAULT):
+    def __init__(self, screen_w: int = 1920, screen_h: int = 1080,
+                 mediapipe_model: str = _MP_MODEL_DEFAULT):
         self.mode = "mediapipe"
         self._kx = KalmanFilter1D()
         self._ky = KalmanFilter1D()
         self._delegate = None
 
-        # 1. Tobii Eye Tracker
+        # 1. tobii-research SDK (Python ≤ 3.10)
         try:
             from gaze.tobii_estimator import TobiiEstimator
             self._delegate = TobiiEstimator()
             self.mode = "tobii"
             return
         except Exception as e:
-            print(f"[Gaze] Tobii nicht verfügbar ({e}), versuche L2CS-Net/MediaPipe")
+            print(f"[Gaze] tobii-research nicht verfügbar ({e})")
 
-        # 2. L2CS-Net
+        # 2. Cursor-Modus via pyautogui (Tobii Experience steuert Cursor)
+        try:
+            from gaze.cursor_estimator import CursorEstimator
+            self._delegate = CursorEstimator(screen_w, screen_h)
+            self.mode = "cursor"
+            return
+        except Exception as e:
+            print(f"[Gaze] Cursor-Modus nicht verfügbar ({e}), nutze Kamera")
+
+        # 3. L2CS-Net
         if _l2cs_available:
             import os
             if os.path.exists(L2CS_WEIGHTS):

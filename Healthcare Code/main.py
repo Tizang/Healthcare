@@ -80,7 +80,7 @@ SCREEN_W, SCREEN_H = _screen_size()
 
 
 # ── Gaze + Kalibrierung ───────────────────────────────────────────────────────
-estimator   = GazeEstimator()
+estimator   = GazeEstimator(screen_w=SCREEN_W, screen_h=SCREEN_H)
 calibration = GazeCalibration()
 
 _calib_loaded = calibration.load()
