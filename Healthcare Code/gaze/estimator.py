@@ -44,13 +44,21 @@ _L_IRIS,   _R_IRIS   = 468, 473
 class GazeEstimator:
     """
     Estimates gaze direction as (gx, gy) in raw sensor units.
-    Priority: tobii-research → Cursor/pyautogui → L2CS-Net → MediaPipe.
+    Source selection:
+      auto   → tobii-research → Cursor/pyautogui → L2CS-Net → MediaPipe
+      tobii  → Tobii SDK only
+      cursor → System cursor only
+      camera → L2CS/MediaPipe only
 
     After calibration, pass output through GazeCalibration.transform().
     """
 
     def __init__(self, screen_w: int = 1920, screen_h: int = 1080,
-                 mediapipe_model: str = _MP_MODEL_DEFAULT):
+                 mediapipe_model: str = _MP_MODEL_DEFAULT,
+                 source: str = "auto"):
+        if source not in ("auto", "tobii", "cursor", "camera"):
+            raise ValueError(f"Unknown gaze source: {source}")
+
         self.mode = "mediapipe"
         self._kx = KalmanFilter1D()
         self._ky = KalmanFilter1D()
@@ -144,6 +152,10 @@ class GazeEstimator:
             return
         self._kx.reset()
         self._ky.reset()
+
+    def disconnect(self):
+        if self._delegate is not None and hasattr(self._delegate, "disconnect"):
+            self._delegate.disconnect()
 
     # ── L2CS-Net ──────────────────────────────────────────────────────────────
 
