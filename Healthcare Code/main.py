@@ -49,8 +49,8 @@ SIMULATE  = _args.simulate
 
 WEBCAM       = 0
 MAX_SPEED    = 100
-DZ_X         = 0.20     # Totzone halbe Breite  (0.0–1.0 in normalisiertem Gaze-Raum)
-DZ_Y         = 0.20     # Totzone halbe Höhe
+DZ_X         = 0.40     # Totzone halbe Breite  (0.0–1.0 in normalisiertem Gaze-Raum)
+DZ_Y         = 0.40     # Totzone halbe Höhe
 FACE_TIMEOUT = 2.0      # nur relevant bei Webcam-Modus
 
 # Kalibrierungs-Timing
