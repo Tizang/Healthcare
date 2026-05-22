@@ -78,8 +78,8 @@ class GazeCalibration:
         if not self.is_fitted:
             return gx, gy
         X = _features(np.array([gx]), np.array([gy]))
-        cx = float(X @ self._cx_coef)
-        cy = float(X @ self._cy_coef)
+        cx = float((X @ self._cx_coef)[0])
+        cy = float((X @ self._cy_coef)[0])
         return float(np.clip(cx, -1.2, 1.2)), float(np.clip(cy, -1.2, 1.2))
 
     def save(self, path: str = CALIB_FILE):
