@@ -12,6 +12,8 @@ import time
 import numpy as np
 import cv2
 
+from gaze.filters import KalmanFilter1D  # noqa: F401  (re-exported for back-compat)
+
 # ── Try L2CS-Net ──────────────────────────────────────────────────────────────
 _l2cs_available = False
 try:
@@ -37,26 +39,6 @@ _R_INNER,  _R_OUTER  = 362, 263
 _R_TOP,    _R_BOT    = 386, 374
 _L_IRIS,   _R_IRIS   = 468, 473
 
-
-class KalmanFilter1D:
-    """Simple scalar Kalman filter for smooth, responsive gaze tracking."""
-
-    def __init__(self, process_var: float = 2e-4, measure_var: float = 0.04):
-        self.x = 0.0
-        self.p = 1.0
-        self.q = process_var
-        self.r = measure_var
-
-    def update(self, z: float) -> float:
-        self.p += self.q
-        k = self.p / (self.p + self.r)
-        self.x += k * (z - self.x)
-        self.p *= (1.0 - k)
-        return self.x
-
-    def reset(self, value: float = 0.0):
-        self.x = value
-        self.p = 1.0
 
 
 class GazeEstimator:

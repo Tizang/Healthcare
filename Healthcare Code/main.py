@@ -87,6 +87,11 @@ _calib_loaded = calibration.load()
 if _calib_loaded:
     print("[Kalibrierung] Gespeicherte Kalibrierung geladen")
 
+# Tobii/Cursor: keine Kalibrierung nötig (Tobii kalibriert intern)
+if estimator.mode in ("tobii", "cursor"):
+    _calib_loaded = True   # überspringt die 9-Punkt-Kalibrierung
+    print(f"[Kalibrierung] Übersprungen — {estimator.mode}-Modus aktiv")
+
 
 # ── Arm ───────────────────────────────────────────────────────────────────────
 class _SimArm:

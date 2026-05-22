@@ -16,7 +16,7 @@ import time
 import threading
 import numpy as np
 
-from gaze.estimator import KalmanFilter1D
+from gaze.filters import KalmanFilter1D
 
 
 class TobiiEstimator:
