@@ -1,3 +1,9 @@
 opencv-python>=4.8.0
 mediapipe>=0.10.0
 numpy>=1.24.0
+
+# Für maximale Genauigkeit (optional):
+# pip install torch torchvision l2cs
+# Dann Modell herunterladen:
+# https://drive.google.com/file/d/1eUr4OALR9K9P1WVuKTqBnXMa65JEm0Gh/
+# Ablegen unter: Healthcare Code/models/L2CSNet_gaze360.pkl
