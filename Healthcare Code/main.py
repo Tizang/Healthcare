@@ -36,6 +36,9 @@ _ap = argparse.ArgumentParser()
 _ap.add_argument("--simulate",         action="store_true")
 _ap.add_argument("--ip",               default="127.0.0.1")
 _ap.add_argument("--port",             default=5522, type=int)
+_ap.add_argument("--camera",           default=None, type=int,
+                 help="Kamera-Index (0=Webcam, 1=HDMI-Grabber, …). "
+                      "Ohne Angabe: automatisch suchen.")
 _ap.add_argument("--skip-calibration", action="store_true")
 _ap.add_argument("--gaze-source", choices=("auto", "tobii", "cursor", "camera"),
                  default="auto")
@@ -49,7 +52,6 @@ ARM_IP    = _args.ip
 ARM_PORT  = _args.port
 SIMULATE  = _args.simulate
 
-WEBCAM       = 0
 MAX_SPEED    = 100
 DZ_X         = 0.40     # Totzone halbe Breite  (0.0–1.0 in normalisiertem Gaze-Raum)
 DZ_Y         = 0.40     # Totzone halbe Höhe
@@ -168,14 +170,30 @@ def _to_speed(v: float, dz: float) -> int:
     return int(sign * (abs(v) - dz) / (1.0 - dz) * MAX_SPEED)
 
 
-# ── Kamera (optional — wird bei Tobii nur für das Display genutzt) ────────────
-cap = cv2.VideoCapture(WEBCAM)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-cap.set(cv2.CAP_PROP_FPS,          30)
+# ── Kamera (HDMI-Grabber oder Webcam) ────────────────────────────────────────
+def _open_camera(index: int | None) -> tuple[cv2.VideoCapture, int]:
+    """Öffnet die Kamera. Bei index=None: sucht automatisch den besten Eingang."""
+    candidates = [index] if index is not None else list(range(4))
+    for idx in candidates:
+        c = cv2.VideoCapture(idx, cv2.CAP_DSHOW)   # CAP_DSHOW = schnellster Windows-Treiber
+        if c.isOpened():
+            ok, frame = c.read()
+            if ok and frame is not None:
+                w = int(c.get(cv2.CAP_PROP_FRAME_WIDTH))
+                h = int(c.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                print(f"[Kamera] Index {idx} gefunden — {w}×{h}")
+                return c, idx
+            c.release()
+    return cv2.VideoCapture(), -1
+
+cap, _cam_idx = _open_camera(_args.camera)
 _has_camera = cap.isOpened()
-if not _has_camera:
-    print(f"[Kamera] Keine Webcam — Display zeigt schwarzes Bild")
+if _has_camera:
+    # Native Auflösung des Grabbers nutzen (kein Downscale auf 640×480)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+else:
+    print("[Kamera] Kein Eingang gefunden — Display zeigt schwarzes Bild")
+    print("         HDMI-Grabber angeschlossen? Versuch: python main.py --camera 1")
 _black_frame = np.zeros((SCREEN_H, SCREEN_W, 3), dtype=np.uint8)
 
 WIN = "SOLOASSIST Eye Tracking"
