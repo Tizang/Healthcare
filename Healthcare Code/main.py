@@ -292,7 +292,10 @@ while True:
     # ── TRACKING ──────────────────────────────────────────────────────────
     else:
         if raw_x is not None:
-            cal_x, cal_y = calibration.transform(raw_x, raw_y)
+            if estimator.mode in ("tobii", "cursor"):
+                cal_x, cal_y = raw_x, raw_y   # Tobii liefert bereits kalibrierte Koordinaten
+            else:
+                cal_x, cal_y = calibration.transform(raw_x, raw_y)
             # Sanfter Tiefpassfilter nach Kalman (für letzte Stabilität)
             _sx = 0.55 * cal_x + 0.45 * _sx
             _sy = 0.55 * cal_y + 0.45 * _sy
