@@ -33,7 +33,7 @@ from controller.arm_controller import SoloAssistController
 # ── Kommandozeilen-Argumente ──────────────────────────────────────────────────
 _ap = argparse.ArgumentParser()
 _ap.add_argument("--simulate", action="store_true", help="Kein echter Arm, nur Simulation")
-_ap.add_argument("--ip",   default="192.168.1.100")
+_ap.add_argument("--ip",   default="127.0.0.1")
 _ap.add_argument("--port", default=5522, type=int)
 _args = _ap.parse_args()
 
