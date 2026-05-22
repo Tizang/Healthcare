@@ -23,6 +23,7 @@ import threading
 import argparse
 
 import cv2
+import os
 import numpy as np
 
 from gaze.estimator import GazeEstimator
