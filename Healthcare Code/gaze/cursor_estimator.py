@@ -25,11 +25,14 @@ class CursorEstimator:
     """
 
     def __init__(self, screen_w: int, screen_h: int):
-        import pyautogui
-        pyautogui.FAILSAFE = False   # kein Abbruch wenn Cursor in Ecke
-        self._pa = pyautogui
+        import ctypes
+        self._ct = ctypes
         self._sw = screen_w
         self._sh = screen_h
+
+        class _PT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+        self._PT = _PT
 
         self._gx:   float = 0.0
         self._gy:   float = 0.0
@@ -45,8 +48,9 @@ class CursorEstimator:
     def _poll(self):
         while self._running:
             try:
-                x, y = self._pa.position()
-                # Normalisiere [0, screen] → [-1, +1], Y invertiert (oben = +1)
+                pt = self._PT()
+                self._ct.windll.user32.GetCursorPos(self._ct.byref(pt))
+                x, y = pt.x, pt.y
                 raw_gx =  (x / self._sw - 0.5) * 2.0
                 raw_gy = -(y / self._sh - 0.5) * 2.0
                 gx = self._kx.update(raw_gx)

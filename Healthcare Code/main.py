@@ -313,13 +313,16 @@ while True:
             with _lock:
                 _cmd[:] = [0, 0, 0]
 
-        # Cursor — im Cursor-Modus direkt Mausposition verwenden
+        # Cursor — im Cursor-Modus direkt Windows-API verwenden (kein DPI-Versatz)
         if estimator.mode == "cursor":
             try:
-                import pyautogui
-                cx, cy = pyautogui.position()
-                cx = int(np.clip(cx, 0, SCREEN_W - 1))
-                cy = int(np.clip(cy, 0, SCREEN_H - 1))
+                import ctypes as _ct
+                class _PT(_ct.Structure):
+                    _fields_ = [("x", _ct.c_long), ("y", _ct.c_long)]
+                _pt = _PT()
+                _ct.windll.user32.GetCursorPos(_ct.byref(_pt))
+                cx = int(np.clip(_pt.x, 0, SCREEN_W - 1))
+                cy = int(np.clip(_pt.y, 0, SCREEN_H - 1))
             except Exception:
                 cx = int(np.clip((gx + 1) / 2, 0, 1) * SCREEN_W)
                 cy = int(np.clip((-gy + 1) / 2, 0, 1) * SCREEN_H)
