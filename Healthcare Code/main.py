@@ -29,17 +29,19 @@ import numpy as np
 from gaze.estimator import GazeEstimator
 from gaze.calibration import GazeCalibration, CALIB_POINTS
 from controller.arm_controller import SoloAssistController
+from controller.pedal_receiver import PedalReceiver
 
 # ── Argumente ─────────────────────────────────────────────────────────────────
 _ap = argparse.ArgumentParser()
 _ap.add_argument("--simulate",         action="store_true")
 _ap.add_argument("--ip",               default="127.0.0.1")
 _ap.add_argument("--port",             default=5522, type=int)
-_ap.add_argument("--skip-calibration", action="store_true",
-                 help="Gespeicherte Kalibrierung nutzen ohne Neukalibrierung")
+_ap.add_argument("--skip-calibration", action="store_true")
 _ap.add_argument("--gaze-source", choices=("auto", "tobii", "cursor", "camera"),
-                 default="auto",
-                 help="Gaze input: auto, tobii SDK, cursor, or camera")
+                 default="auto")
+_ap.add_argument("--pedal-ip",   default=None,
+                 help="IP des ESP32 Pedal-Controllers (z.B. 192.168.1.50)")
+_ap.add_argument("--pedal-port", default=5566, type=int)
 _args = _ap.parse_args()
 
 # ── Einstellungen ─────────────────────────────────────────────────────────────
@@ -146,6 +148,16 @@ def _arm_loop():
         arm.move_polar(lr, ud, io)
 
 threading.Thread(target=_arm_loop, daemon=True).start()
+
+
+# ── Pedale (ESP32) ────────────────────────────────────────────────────────────
+pedals = PedalReceiver(_args.pedal_ip or "", _args.pedal_port)
+if _args.pedal_ip:
+    pedals.connect()
+else:
+    print("[Pedal] Kein --pedal-ip angegeben — Pedale deaktiviert")
+
+ZOOM_SPEED = 80   # Geschwindigkeit für Zoom In/Out (io-Achse)
 
 
 # ── Hilfsfunktionen ───────────────────────────────────────────────────────────
@@ -364,6 +376,26 @@ while True:
 
     cv2.imshow(WIN, disp)
 
+    # ── Pedale ────────────────────────────────────────────────────────────
+    if pedals.connected:
+        # B2: Start / Stop (Flanken-Trigger)
+        if pedals.pressed("B2"):
+            paused = not paused
+            if paused:
+                arm.stop()
+
+        # B0 / B1: Zoom In / Out (io-Achse, solange gehalten)
+        if not paused:
+            if pedals.held("B0"):
+                with _lock:
+                    _cmd[2] = ZOOM_SPEED      # Zoom In
+            elif pedals.held("B1"):
+                with _lock:
+                    _cmd[2] = -ZOOM_SPEED     # Zoom Out
+            else:
+                with _lock:
+                    _cmd[2] = 0
+
     # ── Tasten ────────────────────────────────────────────────────────────
     key = cv2.waitKey(1) & 0xFF
     if key in (27, ord("q"), ord("Q")):
@@ -380,6 +412,7 @@ while True:
 _run[0] = False
 arm.stop()
 arm.disconnect()
+pedals.disconnect()
 estimator.disconnect()
 cap.release()
 cv2.destroyAllWindows()
