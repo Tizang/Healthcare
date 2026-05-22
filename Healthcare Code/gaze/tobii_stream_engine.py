@@ -12,25 +12,58 @@ import numpy as np
 
 from gaze.filters import KalmanFilter1D
 
-_DLL_PATHS = [
+_DLL_CANDIDATES = [
     r"C:\Program Files\Tobii\Tobii Stream Engine\tobii_stream_engine.dll",
     r"C:\Program Files (x86)\Tobii\Tobii Stream Engine\tobii_stream_engine.dll",
     r"C:\Program Files\Tobii\Tobii Streams\tobii_stream_engine.dll",
+    r"C:\Program Files\Tobii\tobii_stream_engine.dll",
+    r"C:\Program Files (x86)\Tobii\tobii_stream_engine.dll",
     "tobii_stream_engine.dll",
 ]
 
 
 def _find_dll() -> ctypes.CDLL:
-    for path in _DLL_PATHS:
+    # 1. Bekannte Pfade prüfen
+    for path in _DLL_CANDIDATES:
         if os.path.exists(path):
             return ctypes.CDLL(path)
+
+    # 2. Rekursiv in C:\Program Files suchen
+    for base in (r"C:\Program Files", r"C:\Program Files (x86)"):
+        for root, _dirs, files in os.walk(base):
+            if "tobii" in root.lower() and "tobii_stream_engine.dll" in files:
+                path = os.path.join(root, "tobii_stream_engine.dll")
+                print(f"[Tobii] DLL gefunden: {path}")
+                return ctypes.CDLL(path)
+
+    # 3. Windows Registry
+    try:
+        import winreg
+        for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            for subkey in (r"SOFTWARE\Tobii", r"SOFTWARE\WOW6432Node\Tobii"):
+                try:
+                    key = winreg.OpenKey(hive, subkey)
+                    install_dir, _ = winreg.QueryValueEx(key, "InstallDir")
+                    candidate = os.path.join(install_dir, "tobii_stream_engine.dll")
+                    if os.path.exists(candidate):
+                        return ctypes.CDLL(candidate)
+                except Exception:
+                    pass
+    except ImportError:
+        pass
+
+    # 4. Direkt aus PATH
     try:
         return ctypes.CDLL("tobii_stream_engine")
     except Exception:
         pass
+
     raise FileNotFoundError(
         "tobii_stream_engine.dll nicht gefunden.\n"
-        "Tobii Experience Software installieren: https://gaming.tobii.com/getstarted/"
+        "Bitte in PowerShell ausführen:\n"
+        r"  Get-ChildItem -Path 'C:\' -Recurse -Filter 'tobii_stream_engine.dll' "
+        "-ErrorAction SilentlyContinue | Select-Object FullName\n"
+        "Dann den Pfad an konrad weitergeben."
     )
 
 
