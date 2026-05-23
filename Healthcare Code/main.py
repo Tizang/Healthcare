@@ -37,8 +37,10 @@ _ap.add_argument("--simulate",         action="store_true")
 _ap.add_argument("--ip",               default="127.0.0.1")
 _ap.add_argument("--port",             default=5522, type=int)
 _ap.add_argument("--camera",           default=None, type=int,
-                 help="Kamera-Index (0=Webcam, 1=HDMI-Grabber, …). "
-                      "Ohne Angabe: automatisch suchen.")
+                 help="Kamera-Index (0=Webcam, 1=HDMI-Grabber, …).")
+_ap.add_argument("--camera-name",      default=None,
+                 help="Gerätename für HDMI-Grabber, z.B. 'USB Video'. "
+                      "Finden mit: ffmpeg -list_devices true -f dshow -i dummy")
 _ap.add_argument("--skip-calibration", action="store_true")
 _ap.add_argument("--gaze-source", choices=("auto", "tobii", "cursor", "camera"),
                  default="auto")
@@ -171,8 +173,23 @@ def _to_speed(v: float, dz: float) -> int:
 
 
 # ── Kamera (HDMI-Grabber oder Webcam) ────────────────────────────────────────
-def _open_camera(index: int | None) -> tuple[cv2.VideoCapture, int]:
-    """Öffnet die Kamera. Bei index=None: sucht automatisch den besten Eingang."""
+def _open_camera(index: int | None, name: str | None = None) -> tuple[cv2.VideoCapture, int]:
+    """Öffnet die Kamera per Name (DSHOW) oder Index-Suche."""
+
+    # Per Gerätename öffnen (zuverlässigste Methode für HDMI-Grabber)
+    if name:
+        src = f"video={name}"
+        c = cv2.VideoCapture(src, cv2.CAP_DSHOW)
+        if c.isOpened():
+            ok, frame = c.read()
+            if ok and frame is not None:
+                w = int(c.get(cv2.CAP_PROP_FRAME_WIDTH))
+                h = int(c.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                print(f"[Kamera] '{name}' gefunden — {w}×{h}")
+                return c, 0
+        print(f"[Kamera] Gerät '{name}' nicht gefunden")
+
+    # Per Index suchen
     candidates = [index] if index is not None else list(range(6))
     backends = [cv2.CAP_MSMF, cv2.CAP_DSHOW]
     for idx in candidates:
@@ -189,7 +206,7 @@ def _open_camera(index: int | None) -> tuple[cv2.VideoCapture, int]:
                 c.release()
     return cv2.VideoCapture(), -1
 
-cap, _cam_idx = _open_camera(_args.camera)
+cap, _cam_idx = _open_camera(_args.camera, getattr(_args, "camera_name", None))
 _has_camera = cap.isOpened()
 if _has_camera:
     # Native Auflösung des Grabbers nutzen (kein Downscale auf 640×480)
