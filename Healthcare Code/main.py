@@ -234,18 +234,22 @@ class FFmpegCapture:
         return False
 
     def _start(self) -> bool:
+        # Ausgabe auf 960×540 skalieren — halbiert die Datenmenge vs. 1920×1080
+        self._w, self._h = 960, 540
         try:
             self._proc = subprocess.Popen(
                 ["ffmpeg", "-hide_banner", "-loglevel", "error",
                  "-f", "dshow", "-i", f"video={self._device}",
+                 "-vf", f"scale={self._w}:{self._h}",
                  "-f", "rawvideo", "-pix_fmt", "bgr24",
-                 "-r", "30",   # Output auf 30 fps begrenzen
+                 "-r", "25",
                  "-"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
-                bufsize=0,     # Unbuffered — kein Stau in der Pipe
+                bufsize=0,
             )
             threading.Thread(target=self._reader, daemon=True).start()
+            print(f"[Kamera] FFmpeg stream: {self._w}×{self._h} @ 25fps")
             return True
         except Exception as e:
             print(f"[Kamera] FFmpeg-Start fehlgeschlagen: {e}")
