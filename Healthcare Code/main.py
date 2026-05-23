@@ -172,11 +172,132 @@ def _to_speed(v: float, dz: float) -> int:
     return int(sign * (abs(v) - dz) / (1.0 - dz) * MAX_SPEED)
 
 
-# ── Kamera (HDMI-Grabber oder Webcam) ────────────────────────────────────────
-def _open_camera(index: int | None, name: str | None = None) -> tuple[cv2.VideoCapture, int]:
-    """Öffnet die Kamera. Listet alle verfügbaren Geräte und wählt das beste."""
+# ── FFmpeg-Capture (Fallback für HDMI-Grabber, den OpenCV nicht öffnen kann) ──
+class FFmpegCapture:
+    """
+    Drop-in für cv2.VideoCapture via ffmpeg-Subprocess.
+    Verwendet DirectShow (Windows) um Geräte anzusprechen, die OpenCV nicht findet.
+    """
 
-    # Alle verfügbaren Kameras finden und anzeigen
+    def __init__(self, device_name: str):
+        self._device  = device_name
+        self._w       = 1920
+        self._h       = 1080
+        self._proc: subprocess.Popen | None = None
+        self._opened  = False
+        self._lock    = threading.Lock()
+        self._frame: np.ndarray | None = None
+
+        if self._probe() and self._start():
+            self._opened = True
+
+    def _probe(self) -> bool:
+        """Ermittelt Auflösung und prüft, ob das Gerät existiert."""
+        import re
+        try:
+            r = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-f", "dshow",
+                 "-i", f"video={self._device}",
+                 "-vframes", "1", "-f", "null", "-"],
+                capture_output=True, text=True, timeout=8,
+            )
+            for line in r.stderr.splitlines():
+                if "Video:" in line:
+                    m = re.search(r"(\d{3,5})x(\d{3,5})", line)
+                    if m:
+                        self._w, self._h = int(m.group(1)), int(m.group(2))
+                        print(f"[Kamera] FFmpeg erkannt: {self._device} → {self._w}×{self._h}")
+                        return True
+            print(f"[Kamera] FFmpeg: '{self._device}' nicht gefunden oder keine Video-Info")
+        except FileNotFoundError:
+            print("[Kamera] ffmpeg nicht im PATH — bitte installieren: winget install ffmpeg")
+        except subprocess.TimeoutExpired:
+            print(f"[Kamera] FFmpeg-Probe Timeout für '{self._device}'")
+        except Exception as e:
+            print(f"[Kamera] FFmpeg-Probe Fehler: {e}")
+        return False
+
+    def _start(self) -> bool:
+        frame_bytes = self._w * self._h * 3
+        try:
+            self._proc = subprocess.Popen(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error",
+                 "-f", "dshow", "-i", f"video={self._device}",
+                 "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                bufsize=frame_bytes * 4,
+            )
+            threading.Thread(target=self._reader, daemon=True).start()
+            return True
+        except Exception as e:
+            print(f"[Kamera] FFmpeg-Start fehlgeschlagen: {e}")
+            return False
+
+    def _reader(self):
+        n   = self._w * self._h * 3
+        buf = bytearray()
+        while self._proc and self._proc.poll() is None:
+            try:
+                chunk = self._proc.stdout.read(65536)
+            except Exception:
+                break
+            if not chunk:
+                break
+            buf.extend(chunk)
+            while len(buf) >= n:
+                frame = np.frombuffer(bytes(buf[:n]), np.uint8).reshape((self._h, self._w, 3))
+                del buf[:n]
+                with self._lock:
+                    self._frame = frame
+        self._opened = False
+
+    def isOpened(self) -> bool:
+        return self._opened
+
+    def read(self):
+        with self._lock:
+            if self._frame is None:
+                return False, None
+            return True, self._frame.copy()
+
+    def get(self, prop) -> float:
+        if prop == cv2.CAP_PROP_FRAME_WIDTH:  return float(self._w)
+        if prop == cv2.CAP_PROP_FRAME_HEIGHT: return float(self._h)
+        if prop == cv2.CAP_PROP_FPS:          return 30.0
+        return 0.0
+
+    def set(self, prop, val) -> bool:
+        return False
+
+    def release(self):
+        self._opened = False
+        try:
+            if self._proc:
+                self._proc.kill()
+                self._proc.wait(timeout=2)
+        except Exception:
+            pass
+        self._proc = None
+
+
+# ── Kamera (HDMI-Grabber oder Webcam) ────────────────────────────────────────
+def _open_camera(index: int | None, name: str | None = None):
+    """
+    Öffnet die Kamera.
+    Strategie: zuerst FFmpegCapture per Gerätename (HDMI-Grabber),
+    dann OpenCV-Scan über Indizes 0-7.
+    """
+
+    # 1. Gerätename angegeben → FFmpegCapture versuchen (Windows DirectShow)
+    if name:
+        fc = FFmpegCapture(name)
+        if fc.isOpened():
+            print(f"[Kamera] FFmpeg-Capture aktiv: '{name}' — {fc._w}×{fc._h}")
+            return fc, -1
+        print(f"[Kamera] Gerät '{name}' nicht gefunden — falle auf OpenCV-Scan zurück")
+
+    # 2. OpenCV-Scan: alle Indizes 0-7 mit MSMF und DSHOW testen
     found: list[tuple[int, str, int, int]] = []   # (idx, backend_name, w, h)
     for idx in range(8):
         for backend, bname in [(cv2.CAP_MSMF, "MSMF"), (cv2.CAP_DSHOW, "DSHOW")]:
@@ -186,7 +307,7 @@ def _open_camera(index: int | None, name: str | None = None) -> tuple[cv2.VideoC
                 if ok and frame is not None:
                     w = int(c.get(cv2.CAP_PROP_FRAME_WIDTH))
                     h = int(c.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    if not any(f[0] == idx for f in found):   # gleichen Index nicht doppelt
+                    if not any(f[0] == idx for f in found):
                         found.append((idx, bname, w, h))
                         print(f"[Kamera] Index {idx} ({bname}): {w}×{h}")
                 c.release()
