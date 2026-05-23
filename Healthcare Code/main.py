@@ -192,23 +192,39 @@ class FFmpegCapture:
             self._opened = True
 
     def _probe(self) -> bool:
-        """Ermittelt Auflösung und prüft, ob das Gerät existiert."""
+        """Prüft ob Gerät in DirectShow-Liste, ermittelt Auflösung."""
         import re
         try:
-            r = subprocess.run(
+            # 1. Geräteliste abfragen — prüft ob Name überhaupt existiert
+            r_list = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-list_devices", "true",
+                 "-f", "dshow", "-i", "dummy"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if self._device.lower() not in (r_list.stdout + r_list.stderr).lower():
+                print(f"[Kamera] FFmpeg: '{self._device}' nicht in Geräteliste")
+                return False
+
+            # 2. Stream kurz öffnen → Auflösung aus stderr lesen
+            r_info = subprocess.run(
                 ["ffmpeg", "-hide_banner", "-f", "dshow",
                  "-i", f"video={self._device}",
-                 "-vframes", "1", "-f", "null", "-"],
-                capture_output=True, text=True, timeout=8,
+                 "-t", "0.5", "-f", "null", "-"],
+                capture_output=True, text=True, timeout=7,
             )
-            for line in r.stderr.splitlines():
+            for line in r_info.stderr.splitlines():
                 if "Video:" in line:
                     m = re.search(r"(\d{3,5})x(\d{3,5})", line)
                     if m:
                         self._w, self._h = int(m.group(1)), int(m.group(2))
                         print(f"[Kamera] FFmpeg erkannt: {self._device} → {self._w}×{self._h}")
                         return True
-            print(f"[Kamera] FFmpeg: '{self._device}' nicht gefunden oder keine Video-Info")
+
+            # Gerät vorhanden aber Auflösung unklar → Fallback 1280×720
+            print(f"[Kamera] FFmpeg: '{self._device}' gefunden, nutze 1280×720")
+            self._w, self._h = 1280, 720
+            return True
+
         except FileNotFoundError:
             print("[Kamera] ffmpeg nicht im PATH — bitte installieren: winget install ffmpeg")
         except subprocess.TimeoutExpired:
