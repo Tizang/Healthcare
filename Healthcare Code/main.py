@@ -38,7 +38,7 @@ _ap.add_argument("--ip",               default="127.0.0.1")
 _ap.add_argument("--port",             default=5522, type=int)
 _ap.add_argument("--camera",           default=None, type=int,
                  help="Kamera-Index (0=Webcam, 1=HDMI-Grabber, …).")
-_ap.add_argument("--camera-name",      default=None,
+_ap.add_argument("--camera-name",      default="C1-1 USB3 Video",  # HDMI-Grabber
                  help="Gerätename für HDMI-Grabber, z.B. 'USB Video'. "
                       "Finden mit: ffmpeg -list_devices true -f dshow -i dummy")
 _ap.add_argument("--skip-calibration", action="store_true")
