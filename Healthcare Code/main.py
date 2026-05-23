@@ -234,15 +234,16 @@ class FFmpegCapture:
         return False
 
     def _start(self) -> bool:
-        frame_bytes = self._w * self._h * 3
         try:
             self._proc = subprocess.Popen(
                 ["ffmpeg", "-hide_banner", "-loglevel", "error",
                  "-f", "dshow", "-i", f"video={self._device}",
-                 "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
+                 "-f", "rawvideo", "-pix_fmt", "bgr24",
+                 "-r", "30",   # Output auf 30 fps begrenzen
+                 "-"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
-                bufsize=frame_bytes * 4,
+                bufsize=0,     # Unbuffered — kein Stau in der Pipe
             )
             threading.Thread(target=self._reader, daemon=True).start()
             return True
@@ -261,9 +262,13 @@ class FFmpegCapture:
             if not chunk:
                 break
             buf.extend(chunk)
-            while len(buf) >= n:
-                frame = np.frombuffer(bytes(buf[:n]), np.uint8).reshape((self._h, self._w, 3))
-                del buf[:n]
+            if len(buf) >= n:
+                # Direkt zum letzten vollständigen Frame springen — ältere verwerfen
+                count = len(buf) // n
+                start = (count - 1) * n
+                frame = np.frombuffer(bytes(buf[start:start + n]),
+                                      np.uint8).reshape((self._h, self._w, 3))
+                del buf[:start + n]
                 with self._lock:
                     self._frame = frame
         self._opened = False
