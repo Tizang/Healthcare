@@ -173,17 +173,20 @@ def _to_speed(v: float, dz: float) -> int:
 # ── Kamera (HDMI-Grabber oder Webcam) ────────────────────────────────────────
 def _open_camera(index: int | None) -> tuple[cv2.VideoCapture, int]:
     """Öffnet die Kamera. Bei index=None: sucht automatisch den besten Eingang."""
-    candidates = [index] if index is not None else list(range(4))
+    candidates = [index] if index is not None else list(range(6))
+    backends = [cv2.CAP_MSMF, cv2.CAP_DSHOW]
     for idx in candidates:
-        c = cv2.VideoCapture(idx, cv2.CAP_DSHOW)   # CAP_DSHOW = schnellster Windows-Treiber
-        if c.isOpened():
-            ok, frame = c.read()
-            if ok and frame is not None:
-                w = int(c.get(cv2.CAP_PROP_FRAME_WIDTH))
-                h = int(c.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                print(f"[Kamera] Index {idx} gefunden — {w}×{h}")
-                return c, idx
-            c.release()
+        for backend in backends:
+            c = cv2.VideoCapture(idx, backend)
+            if c.isOpened():
+                ok, frame = c.read()
+                if ok and frame is not None:
+                    w = int(c.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    h = int(c.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    bname = "MSMF" if backend == cv2.CAP_MSMF else "DSHOW"
+                    print(f"[Kamera] Index {idx} ({bname}) gefunden — {w}×{h}")
+                    return c, idx
+                c.release()
     return cv2.VideoCapture(), -1
 
 cap, _cam_idx = _open_camera(_args.camera)
