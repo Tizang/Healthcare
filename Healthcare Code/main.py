@@ -306,10 +306,17 @@ def _open_camera(index: int | None, name: str | None = None):
         else:
             print(f"[Kamera] Gerät '{name}' nicht gefunden — falle auf OpenCV-Scan zurück")
 
-    # 2. OpenCV-Scan: alle Indizes 0-7 mit MSMF und DSHOW testen
+    # 2. OpenCV-Scan: plattformgerechte Backends
+    if sys.platform == "darwin":
+        backends = [(cv2.CAP_AVFOUNDATION, "AVF")]
+    elif sys.platform == "win32":
+        backends = [(cv2.CAP_MSMF, "MSMF"), (cv2.CAP_DSHOW, "DSHOW")]
+    else:
+        backends = [(cv2.CAP_ANY, "ANY")]
+
     found: list[tuple[int, str, int, int]] = []   # (idx, backend_name, w, h)
     for idx in range(8):
-        for backend, bname in [(cv2.CAP_MSMF, "MSMF"), (cv2.CAP_DSHOW, "DSHOW")]:
+        for backend, bname in backends:
             c = cv2.VideoCapture(idx, backend)
             if c.isOpened():
                 ok, frame = c.read()
@@ -328,16 +335,28 @@ def _open_camera(index: int | None, name: str | None = None):
     if index is not None:
         for idx, bname, w, h in found:
             if idx == index:
-                backend = cv2.CAP_MSMF if bname == "MSMF" else cv2.CAP_DSHOW
-                c = cv2.VideoCapture(idx, backend)
+                _b = {"AVF": cv2.CAP_AVFOUNDATION,
+                      "MSMF": cv2.CAP_MSMF,
+                      "DSHOW": cv2.CAP_DSHOW}.get(bname, cv2.CAP_ANY)
+                c = cv2.VideoCapture(idx, _b)
                 print(f"[Kamera] Nutze Index {idx} ({bname}) — {w}×{h}")
                 return c, idx
+        # Index nicht gefunden — trotzdem versuchen
+        c = cv2.VideoCapture(index, backends[0][0])
+        if c.isOpened():
+            w = int(c.get(cv2.CAP_PROP_FRAME_WIDTH))
+            h = int(c.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            print(f"[Kamera] Nutze Index {index} (direkt) — {w}×{h}")
+            return c, index
+        c.release()
 
     # Höchste Auflösung nehmen (= HDMI-Grabber hat meist mehr Pixel als Webcam)
     best = max(found, key=lambda f: f[2] * f[3])
     idx, bname, w, h = best
-    backend = cv2.CAP_MSMF if bname == "MSMF" else cv2.CAP_DSHOW
-    c = cv2.VideoCapture(idx, backend)
+    _b = {"AVF": cv2.CAP_AVFOUNDATION,
+          "MSMF": cv2.CAP_MSMF,
+          "DSHOW": cv2.CAP_DSHOW}.get(bname, cv2.CAP_ANY)
+    c = cv2.VideoCapture(idx, _b)
     print(f"[Kamera] Nutze Index {idx} ({bname}) — {w}×{h}  ← höchste Auflösung")
     return c, idx
 
