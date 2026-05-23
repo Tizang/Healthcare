@@ -293,9 +293,18 @@ def _open_camera(index: int | None, name: str | None = None):
     if name:
         fc = FFmpegCapture(name)
         if fc.isOpened():
-            print(f"[Kamera] FFmpeg-Capture aktiv: '{name}' — {fc._w}×{fc._h}")
-            return fc, -1
-        print(f"[Kamera] Gerät '{name}' nicht gefunden — falle auf OpenCV-Scan zurück")
+            # Auf ersten Frame warten (max. 3 s) — prüft ob Gerät wirklich Signal liefert
+            deadline = time.time() + 3.0
+            while time.time() < deadline:
+                ok, _ = fc.read()
+                if ok:
+                    print(f"[Kamera] FFmpeg-Capture aktiv: '{name}' — {fc._w}×{fc._h}")
+                    return fc, -1
+                time.sleep(0.05)
+            print(f"[Kamera] Kein Frame von '{name}' — falle auf OpenCV-Scan zurück")
+            fc.release()
+        else:
+            print(f"[Kamera] Gerät '{name}' nicht gefunden — falle auf OpenCV-Scan zurück")
 
     # 2. OpenCV-Scan: alle Indizes 0-7 mit MSMF und DSHOW testen
     found: list[tuple[int, str, int, int]] = []   # (idx, backend_name, w, h)
