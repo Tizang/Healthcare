@@ -174,37 +174,42 @@ def _to_speed(v: float, dz: float) -> int:
 
 # ── Kamera (HDMI-Grabber oder Webcam) ────────────────────────────────────────
 def _open_camera(index: int | None, name: str | None = None) -> tuple[cv2.VideoCapture, int]:
-    """Öffnet die Kamera per Name (DSHOW) oder Index-Suche."""
+    """Öffnet die Kamera. Listet alle verfügbaren Geräte und wählt das beste."""
 
-    # Per Gerätename öffnen (zuverlässigste Methode für HDMI-Grabber)
-    if name:
-        src = f"video={name}"
-        c = cv2.VideoCapture(src, cv2.CAP_DSHOW)
-        if c.isOpened():
-            ok, frame = c.read()
-            if ok and frame is not None:
-                w = int(c.get(cv2.CAP_PROP_FRAME_WIDTH))
-                h = int(c.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                print(f"[Kamera] '{name}' gefunden — {w}×{h}")
-                return c, 0
-        print(f"[Kamera] Gerät '{name}' nicht gefunden")
-
-    # Per Index suchen
-    candidates = [index] if index is not None else list(range(6))
-    backends = [cv2.CAP_MSMF, cv2.CAP_DSHOW]
-    for idx in candidates:
-        for backend in backends:
+    # Alle verfügbaren Kameras finden und anzeigen
+    found: list[tuple[int, str, int, int]] = []   # (idx, backend_name, w, h)
+    for idx in range(8):
+        for backend, bname in [(cv2.CAP_MSMF, "MSMF"), (cv2.CAP_DSHOW, "DSHOW")]:
             c = cv2.VideoCapture(idx, backend)
             if c.isOpened():
                 ok, frame = c.read()
                 if ok and frame is not None:
                     w = int(c.get(cv2.CAP_PROP_FRAME_WIDTH))
                     h = int(c.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    bname = "MSMF" if backend == cv2.CAP_MSMF else "DSHOW"
-                    print(f"[Kamera] Index {idx} ({bname}) gefunden — {w}×{h}")
-                    return c, idx
+                    if not any(f[0] == idx for f in found):   # gleichen Index nicht doppelt
+                        found.append((idx, bname, w, h))
+                        print(f"[Kamera] Index {idx} ({bname}): {w}×{h}")
                 c.release()
-    return cv2.VideoCapture(), -1
+
+    if not found:
+        return cv2.VideoCapture(), -1
+
+    # Expliziter Index → direkt nehmen
+    if index is not None:
+        for idx, bname, w, h in found:
+            if idx == index:
+                backend = cv2.CAP_MSMF if bname == "MSMF" else cv2.CAP_DSHOW
+                c = cv2.VideoCapture(idx, backend)
+                print(f"[Kamera] Nutze Index {idx} ({bname}) — {w}×{h}")
+                return c, idx
+
+    # Höchste Auflösung nehmen (= HDMI-Grabber hat meist mehr Pixel als Webcam)
+    best = max(found, key=lambda f: f[2] * f[3])
+    idx, bname, w, h = best
+    backend = cv2.CAP_MSMF if bname == "MSMF" else cv2.CAP_DSHOW
+    c = cv2.VideoCapture(idx, backend)
+    print(f"[Kamera] Nutze Index {idx} ({bname}) — {w}×{h}  ← höchste Auflösung")
+    return c, idx
 
 cap, _cam_idx = _open_camera(_args.camera, getattr(_args, "camera_name", None))
 _has_camera = cap.isOpened()
